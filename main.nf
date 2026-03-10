@@ -43,7 +43,7 @@ required_params.each { p ->
 // ============================================================
 process DECOMPRESS {
     tag "$name"
-    container 'alpine:3.19'
+    container 'ubuntu:24.04'
 
     input:
     tuple val(name), path(gz_file)
@@ -65,7 +65,7 @@ process DECOMPRESS {
 // ============================================================
 process CONCAT_BIN {
     tag "$name"
-    container 'alpine:3.19'
+    container 'ubuntu:24.04'
 
     input:
     tuple val(name), path(gz_files)
@@ -119,14 +119,15 @@ process DOWNLOAD_GTDBTK_DB {
 
 process DOWNLOAD_KOFAM_DB {
     storeDir "${params.db_dir}/kofam"
-    container 'alpine:3.19'
+    container 'ubuntu:24.04'
 
     output:
     path 'kofam_db', emit: db
 
     script:
     """
-    apk add --no-cache wget
+    apt-get update
+    apt-get install -y wget
     mkdir -p kofam_db
     wget -q ftp://ftp.genome.jp/pub/db/kofam/profiles.tar.gz
     wget -q ftp://ftp.genome.jp/pub/db/kofam/ko_list.gz
@@ -140,7 +141,7 @@ process DOWNLOAD_KOFAM_DB {
 
 process DOWNLOAD_EGGNOG_DB {
     storeDir "${params.db_dir}/eggnog"
-    container 'nanozoo/eggnog-mapper:2.1.12--0'
+    container 'nanozoo/eggnog-mapper:2.1.13--c16a7d2'
 
     output:
     path 'eggnog_db', emit: db
@@ -162,7 +163,7 @@ process TAXONOMY {
     tag "gtdbtk"
     label 'high_cpu'
     publishDir "${params.outdir}/taxonomy", mode: 'copy'
-    container 'ecogenomics/gtdbtk:2.4.0'
+    container 'nanozoo/gtdbtk:2.4.0--02c00d5'
     when: params.run_taxonomy
 
     input:
@@ -227,7 +228,7 @@ process EGGNOG {
     tag "$name"
     label 'medium_cpu'
     publishDir "${params.outdir}/eggnog", mode: 'copy'
-    container 'nanozoo/eggnog-mapper:2.1.12--0'
+    container 'nanozoo/eggnog-mapper:2.1.13--c16a7d2'
     when: params.run_eggnog && params.run_bakta
 
     input:
