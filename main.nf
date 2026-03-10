@@ -119,7 +119,7 @@ process DOWNLOAD_GTDBTK_DB {
 
 process DOWNLOAD_KOFAM_DB {
     storeDir "${params.db_dir}/kofam"
-    container 'ubuntu:24.04'
+    container 'reubenduncan/kofam_scan:amd64'
 
     output:
     path 'kofam_db', emit: db
