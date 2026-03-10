@@ -11,6 +11,7 @@ params.gtdbtk_db          = null          // Path to GTDB-Tk reference data dire
 params.kofam_db           = null          // Path to KofamScan db dir (profiles/ + ko_list)
 params.eggnog_db          = null          // Path to EggNOG-mapper data directory
 params.plasmidfinder_db   = '/plasmidfinder_db' // PlasmidFinder db (default: in container)
+params.db_dir             = 'databases'         // Where auto-downloaded databases are stored
 params.outdir             = 'results'
 params.min_completeness   = 80
 params.max_contamination  = 5
@@ -28,8 +29,10 @@ params.run_merge      = true   // final merge to Parquet
 
 // ============================================================
 // Validate required parameters
+// Databases (bakta_db, gtdbtk_db, kofam_db, eggnog_db) are optional:
+// if not provided they will be auto-downloaded to params.db_dir.
 // ============================================================
-def required_params = ['bins_dir', 'quality_report', 'bakta_db', 'gtdbtk_db', 'kofam_db', 'eggnog_db']
+def required_params = ['bins_dir', 'quality_report']
 required_params.each { p ->
     if (!params[p]) error "Missing required parameter: --${p}"
 }
@@ -51,6 +54,79 @@ process DECOMPRESS {
     script:
     """
     gunzip -c ${gz_file} > ${name}.fa
+    """
+}
+
+// ============================================================
+// DATABASE DOWNLOADS
+// Each process is only invoked when the user has not supplied
+// a pre-built database path via the corresponding parameter.
+// storeDir caches the result so subsequent runs skip the download.
+// ============================================================
+
+process DOWNLOAD_BAKTA_DB {
+    storeDir "${params.db_dir}/bakta"
+    container 'oschwengers/bakta:latest'
+    label 'medium_cpu'
+
+    output:
+    path 'db', emit: db
+
+    script:
+    """
+    bakta_db download --output db --type full
+    """
+}
+
+process DOWNLOAD_GTDBTK_DB {
+    storeDir "${params.db_dir}/gtdbtk"
+    container 'ecogenomics/gtdbtk:2.4.0'
+    label 'high_cpu'
+
+    output:
+    path 'gtdbtk_db', emit: db
+
+    script:
+    // download-db.sh is bundled in the ecogenomics/gtdbtk image;
+    // it accepts a target directory as its only argument.
+    // Warning: the GTDB-Tk reference package is ~66 GB.
+    """
+    download-db.sh gtdbtk_db
+    """
+}
+
+process DOWNLOAD_KOFAM_DB {
+    storeDir "${params.db_dir}/kofam"
+    container 'alpine:3.19'
+
+    output:
+    path 'kofam_db', emit: db
+
+    script:
+    """
+    apk add --no-cache wget
+    mkdir -p kofam_db
+    wget -q ftp://ftp.genome.jp/pub/db/kofam/profiles.tar.gz
+    wget -q ftp://ftp.genome.jp/pub/db/kofam/ko_list.gz
+    tar -xzf profiles.tar.gz
+    mv profiles kofam_db/
+    gunzip ko_list.gz
+    mv ko_list kofam_db/
+    rm profiles.tar.gz
+    """
+}
+
+process DOWNLOAD_EGGNOG_DB {
+    storeDir "${params.db_dir}/eggnog"
+    container 'nanozoo/eggnog-mapper:2.1.12--0'
+
+    output:
+    path 'eggnog_db', emit: db
+
+    script:
+    """
+    mkdir -p eggnog_db
+    download_eggnog_data.py --data_dir eggnog_db -y
     """
 }
 
@@ -521,18 +597,52 @@ workflow {
     DECOMPRESS(filtered_bins)
     fa_ch = DECOMPRESS.out   // (name, fa_file)
 
+    // --- Database channels ---
+    // Use user-supplied paths when provided, otherwise auto-download.
+    def bakta_db_ch
+    if (params.bakta_db) {
+        bakta_db_ch = Channel.value(file(params.bakta_db))
+    } else {
+        DOWNLOAD_BAKTA_DB()
+        bakta_db_ch = DOWNLOAD_BAKTA_DB.out.db
+    }
+
+    def gtdbtk_db_ch
+    if (params.gtdbtk_db) {
+        gtdbtk_db_ch = Channel.value(file(params.gtdbtk_db))
+    } else {
+        DOWNLOAD_GTDBTK_DB()
+        gtdbtk_db_ch = DOWNLOAD_GTDBTK_DB.out.db
+    }
+
+    def kofam_db_ch
+    if (params.kofam_db) {
+        kofam_db_ch = Channel.value(file(params.kofam_db))
+    } else {
+        DOWNLOAD_KOFAM_DB()
+        kofam_db_ch = DOWNLOAD_KOFAM_DB.out.db
+    }
+
+    def eggnog_db_ch
+    if (params.eggnog_db) {
+        eggnog_db_ch = Channel.value(file(params.eggnog_db))
+    } else {
+        DOWNLOAD_EGGNOG_DB()
+        eggnog_db_ch = DOWNLOAD_EGGNOG_DB.out.db
+    }
+
     // Step 1 — Taxonomy: collect all FAs into one GTDB-Tk classify_wf run
     TAXONOMY(
         fa_ch.map { name, fa -> fa }.collect(),
-        file(params.gtdbtk_db)
+        gtdbtk_db_ch
     )
 
     // Step 2 — Bakta: per-genome structural + functional annotation
-    BAKTA(fa_ch, file(params.bakta_db))
+    BAKTA(fa_ch, bakta_db_ch)
 
     // Steps 3 & 6 — depend on Bakta protein sequences
-    EGGNOG(BAKTA.out.faa, file(params.eggnog_db))
-    KOFAM(BAKTA.out.faa,  file(params.kofam_db))
+    EGGNOG(BAKTA.out.faa, eggnog_db_ch)
+    KOFAM(BAKTA.out.faa,  kofam_db_ch)
 
     // Step 6b — Reformat KOFAM output from space-separated to proper TSV
     KOFAM_REFORMAT(KOFAM.out.raw)
