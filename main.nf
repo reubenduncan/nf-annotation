@@ -126,8 +126,6 @@ process DOWNLOAD_KOFAM_DB {
 
     script:
     """
-    apt-get update
-    apt-get install -y wget
     mkdir -p kofam_db
     wget -q ftp://ftp.genome.jp/pub/db/kofam/profiles.tar.gz
     wget -q ftp://ftp.genome.jp/pub/db/kofam/ko_list.gz
