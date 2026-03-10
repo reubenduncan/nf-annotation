@@ -4,8 +4,8 @@ nextflow.enable.dsl=2
 // ============================================================
 // Parameters
 // ============================================================
-params.bins_dir           = null          // Dir containing *.fa.gz genome bins
-params.quality_report     = null          // TSV: col1=name, col2=completeness, col3=contamination
+params.input              = null          // Input dir: flat *.fa.gz files, or subdirs each containing *.fa.gz files
+params.quality_report     = null          // (optional) TSV: col1=name, col2=completeness, col3=contamination
 params.bakta_db           = null          // Path to Bakta database directory
 params.gtdbtk_db          = null          // Path to GTDB-Tk reference data directory
 params.kofam_db           = null          // Path to KofamScan db dir (profiles/ + ko_list)
@@ -32,7 +32,7 @@ params.run_merge      = true   // final merge to Parquet
 // Databases (bakta_db, gtdbtk_db, kofam_db, eggnog_db) are optional:
 // if not provided they will be auto-downloaded to params.db_dir.
 // ============================================================
-def required_params = ['bins_dir', 'quality_report']
+def required_params = ['input']
 required_params.each { p ->
     if (!params[p]) error "Missing required parameter: --${p}"
 }
@@ -54,6 +54,28 @@ process DECOMPRESS {
     script:
     """
     gunzip -c ${gz_file} > ${name}.fa
+    """
+}
+
+// ============================================================
+// CONCAT_BIN
+// Subfolder input mode: concatenate all *.fa.gz files within a subdirectory
+// into a single .fa.gz, which is then passed to DECOMPRESS like any other bin.
+// Concatenated gzip streams are valid: gunzip handles multiple streams correctly.
+// ============================================================
+process CONCAT_BIN {
+    tag "$name"
+    container 'alpine:3.19'
+
+    input:
+    tuple val(name), path(gz_files)
+
+    output:
+    tuple val(name), path("${name}.fa.gz")
+
+    script:
+    """
+    cat ${gz_files} > ${name}.fa.gz
     """
 }
 
@@ -573,25 +595,44 @@ EOF
 // ============================================================
 workflow {
 
-    // All .fa.gz bins as (name, file) tuples
-    bins_ch = Channel
-        .fromPath("${params.bins_dir}/*.fa.gz")
-        .map { f -> [f.name.replace('.fa.gz', ''), f] }
+    // Build bins channel.
+    // Flat mode:     input/ contains *.fa.gz directly → each file is one sample.
+    // Subfolder mode: input/ contains subdirs with *.fa.gz → each subdir is one
+    //                 sample; files within it are concatenated before processing.
+    def input_path = file(params.input)
+    def has_subdirs = input_path.listFiles()?.any { it.isDirectory() } ?: false
 
-    // Parse quality report; emit [name, true] for genomes that pass thresholds
-    passing_names = Channel
-        .fromPath(params.quality_report)
-        .splitCsv(sep: '\t', skip: 1)
-        .filter { row ->
-            row[1].toFloat() >= params.min_completeness.toFloat() &&
-            row[2].toFloat() <= params.max_contamination.toFloat()
-        }
-        .map { row -> [row[0], true] }
+    def bins_ch
+    if (has_subdirs) {
+        def raw_ch = Channel
+            .fromPath("${params.input}/*/*.fa.gz")
+            .map { f -> [f.parent.name, f] }
+            .groupTuple()
+        CONCAT_BIN(raw_ch)
+        bins_ch = CONCAT_BIN.out
+    } else {
+        bins_ch = Channel
+            .fromPath("${params.input}/*.fa.gz")
+            .map { f -> [f.name.replace('.fa.gz', ''), f] }
+    }
 
-    // Keep only bins that pass quality thresholds
-    filtered_bins = bins_ch
-        .join(passing_names)
-        .map { name, gz, _flag -> [name, gz] }
+    // Optionally filter bins by quality report; if not supplied all bins proceed.
+    def filtered_bins
+    if (params.quality_report) {
+        def passing_names = Channel
+            .fromPath(params.quality_report)
+            .splitCsv(sep: '\t', skip: 1)
+            .filter { row ->
+                row[1].toFloat() >= params.min_completeness.toFloat() &&
+                row[2].toFloat() <= params.max_contamination.toFloat()
+            }
+            .map { row -> [row[0], true] }
+        filtered_bins = bins_ch
+            .join(passing_names)
+            .map { name, gz, _flag -> [name, gz] }
+    } else {
+        filtered_bins = bins_ch
+    }
 
     // Decompress each filtered bin once; reuse fa_ch for all downstream steps
     DECOMPRESS(filtered_bins)
