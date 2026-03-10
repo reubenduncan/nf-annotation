@@ -644,7 +644,7 @@ workflow {
         bakta_db_ch = Channel.value(file(params.bakta_db))
     } else {
         DOWNLOAD_BAKTA_DB()
-        bakta_db_ch = DOWNLOAD_BAKTA_DB.out.db
+        bakta_db_ch = DOWNLOAD_BAKTA_DB.out.db.first()
     }
 
     def gtdbtk_db_ch
@@ -652,7 +652,7 @@ workflow {
         gtdbtk_db_ch = Channel.value(file(params.gtdbtk_db))
     } else {
         DOWNLOAD_GTDBTK_DB()
-        gtdbtk_db_ch = DOWNLOAD_GTDBTK_DB.out.db
+        gtdbtk_db_ch = DOWNLOAD_GTDBTK_DB.out.db.first()
     }
 
     def kofam_db_ch
@@ -660,7 +660,7 @@ workflow {
         kofam_db_ch = Channel.value(file(params.kofam_db))
     } else {
         DOWNLOAD_KOFAM_DB()
-        kofam_db_ch = DOWNLOAD_KOFAM_DB.out.db
+        kofam_db_ch = DOWNLOAD_KOFAM_DB.out.db.first()
     }
 
     def eggnog_db_ch
@@ -668,7 +668,7 @@ workflow {
         eggnog_db_ch = Channel.value(file(params.eggnog_db))
     } else {
         DOWNLOAD_EGGNOG_DB()
-        eggnog_db_ch = DOWNLOAD_EGGNOG_DB.out.db
+        eggnog_db_ch = DOWNLOAD_EGGNOG_DB.out.db.first()
     }
 
     // Step 1 — Taxonomy: collect all FAs into one GTDB-Tk classify_wf run
