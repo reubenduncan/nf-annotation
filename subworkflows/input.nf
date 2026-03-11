@@ -82,7 +82,7 @@ process BAM_TO_FASTQ {
 process ASSEMBLE_READS {
     tag "$name"
     label 'medium_cpu'
-    container 'nanozoo/megahit:1.2.9--f88698a'
+    container 'nanozoo/megahit:latest'
 
     input:
     tuple val(name), path(fastq_files)
@@ -94,10 +94,8 @@ process ASSEMBLE_READS {
     """
     shopt -s nullglob
     r1=( *_R1*.fastq.gz *_R1*.fq.gz *_R1*.fastq *_R1*.fq \
-         reads_R1.fastq.gz \
          *_1.fastq.gz *_1.fq.gz *_1.fastq *_1.fq )
     r2=( *_R2*.fastq.gz *_R2*.fq.gz *_R2*.fastq *_R2*.fq \
-         reads_R2.fastq.gz \
          *_2.fastq.gz *_2.fq.gz *_2.fastq *_2.fq )
 
     if [ \${#r1[@]} -gt 0 ] && [ \${#r2[@]} -gt 0 ]; then
