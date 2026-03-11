@@ -74,15 +74,15 @@ process BAM_TO_FASTQ {
 }
 
 // ============================================================
-// ASSEMBLE_READS
-// Assembles FASTQ reads into contigs using MEGAHIT.
-// Auto-detects paired-end (R1 / R2) vs single-end layout.
-// Accepts input from direct FASTQ files or BAM_TO_FASTQ output.
+// CONCAT_READS
+// Concatenates FASTQ files and converts to FASTA, treating each
+// read as a contig directly (no assembly).  Handles both plain
+// and gzipped input.  Suitable for basecaller consensus reads
+// where each read is already a complete sequence.
 // ============================================================
-process ASSEMBLE_READS {
+process CONCAT_READS {
     tag "$name"
-    label 'medium_cpu'
-    container 'nanozoo/megahit:latest'
+    container 'ubuntu:24.04'
 
     input:
     tuple val(name), path(fastq_files)
@@ -92,22 +92,12 @@ process ASSEMBLE_READS {
 
     script:
     """
-    shopt -s nullglob
-    r1=( *_R1*.fastq.gz *_R1*.fq.gz *_R1*.fastq *_R1*.fq \
-         *_1.fastq.gz *_1.fq.gz *_1.fastq *_1.fq )
-    r2=( *_R2*.fastq.gz *_R2*.fq.gz *_R2*.fastq *_R2*.fq \
-         *_2.fastq.gz *_2.fq.gz *_2.fastq *_2.fq )
-
-    if [ \${#r1[@]} -gt 0 ] && [ \${#r2[@]} -gt 0 ]; then
-        r1_list=\$(IFS=,; echo "\${r1[*]}")
-        r2_list=\$(IFS=,; echo "\${r2[*]}")
-        megahit -1 "\$r1_list" -2 "\$r2_list" -o megahit_out -t ${task.cpus}
-    else
-        all=\$(ls *.fastq.gz *.fq.gz *.fastq *.fq 2>/dev/null | paste -sd,)
-        megahit -r "\$all" -o megahit_out -t ${task.cpus}
-    fi
-
-    cp megahit_out/final.contigs.fa ${name}.fa
+    for f in ${fastq_files}; do
+        case "\$f" in
+            *.gz) gunzip -c "\$f" ;;
+            *)    cat "\$f" ;;
+        esac
+    done | awk 'NR%4==1{print ">"substr(\$0,2)} NR%4==2{print}' > ${name}.fa
     """
 }
 
@@ -174,12 +164,12 @@ workflow COLLECT_INPUTS {
     NORMALIZE_FASTA(classified.fasta.map { name, type, files -> [name, files] })
     BAM_TO_FASTQ   (classified.bam.map   { name, type, files -> [name, files] })
 
-    // Assemble both direct FASTQ inputs and BAM-derived FASTQ together
-    ASSEMBLE_READS(
+    // Concatenate + convert both direct FASTQ inputs and BAM-derived FASTQ
+    CONCAT_READS(
         classified.fastq.map { name, type, files -> [name, files] }
             .mix(BAM_TO_FASTQ.out)
     )
 
     emit:
-    samples = NORMALIZE_FASTA.out.mix(ASSEMBLE_READS.out)
+    samples = NORMALIZE_FASTA.out.mix(CONCAT_READS.out)
 }
