@@ -1,0 +1,827 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Serratia Genomic Analysis — S. fonticola DSM 4576</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<style>
+  :root {
+    --bg: #0f1117;
+    --surface: #1a1d27;
+    --surface2: #22263a;
+    --border: #2e3350;
+    --accent: #5b8dee;
+    --accent2: #e05c8a;
+    --accent3: #4ecdc4;
+    --accent4: #f7b731;
+    --text: #e4e8f7;
+    --muted: #7a82a8;
+    --font: 'Segoe UI', system-ui, -apple-system, sans-serif;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--text); font-family: var(--font); font-size: 14px; line-height: 1.6; }
+
+  /* ── Header ── */
+  header {
+    background: linear-gradient(135deg, #12172a 0%, #1a2040 60%, #0f1a30 100%);
+    border-bottom: 1px solid var(--border);
+    padding: 32px 40px 24px;
+  }
+  header h1 { font-size: 26px; font-weight: 700; color: #fff; letter-spacing: -0.3px; }
+  header h1 span { color: var(--accent); }
+  header p.sub { color: var(--muted); margin-top: 6px; font-size: 13px; }
+  .tag-row { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 14px; }
+  .tag { background: var(--surface2); border: 1px solid var(--border); border-radius: 20px;
+         padding: 3px 12px; font-size: 12px; color: var(--muted); }
+  .tag.highlight { border-color: var(--accent); color: var(--accent); }
+
+  /* ── Nav ── */
+  nav { background: var(--surface); border-bottom: 1px solid var(--border);
+        display: flex; gap: 2px; padding: 0 40px; overflow-x: auto; }
+  nav button {
+    background: none; border: none; color: var(--muted); cursor: pointer;
+    font-family: var(--font); font-size: 13px; padding: 14px 18px;
+    border-bottom: 2px solid transparent; transition: all .2s; white-space: nowrap;
+  }
+  nav button:hover { color: var(--text); }
+  nav button.active { color: var(--accent); border-bottom-color: var(--accent); }
+
+  /* ── Layout ── */
+  main { max-width: 1280px; margin: 0 auto; padding: 32px 40px; }
+  .section { display: none; }
+  .section.active { display: block; }
+
+  h2 { font-size: 18px; font-weight: 600; margin-bottom: 4px; color: #fff; }
+  h3 { font-size: 14px; font-weight: 600; color: var(--accent); margin-bottom: 14px; text-transform: uppercase; letter-spacing: .5px; }
+  .section-desc { color: var(--muted); font-size: 13px; margin-bottom: 24px; }
+
+  /* ── Cards ── */
+  .card-grid { display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); margin-bottom: 32px; }
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 20px; }
+  .card .val { font-size: 28px; font-weight: 700; color: var(--accent); line-height: 1; }
+  .card .val.warn { color: var(--accent4); }
+  .card .val.ok { color: var(--accent3); }
+  .card .label { color: var(--muted); font-size: 12px; margin-top: 6px; }
+  .card .detail { color: var(--text); font-size: 12px; margin-top: 4px; }
+
+  /* ── Grid layouts ── */
+  .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; margin-bottom: 32px; }
+  .chart-box { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 24px; }
+  .chart-box canvas { max-height: 320px; }
+  .full-chart { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 24px; margin-bottom: 32px; }
+  .full-chart canvas { max-height: 360px; }
+
+  /* ── Tables ── */
+  .table-wrap { overflow-x: auto; border-radius: 10px; border: 1px solid var(--border); margin-bottom: 32px; }
+  table { width: 100%; border-collapse: collapse; background: var(--surface); }
+  thead th { background: var(--surface2); color: var(--muted); font-size: 11px;
+             text-transform: uppercase; letter-spacing: .5px; padding: 10px 14px;
+             text-align: left; border-bottom: 1px solid var(--border); white-space: nowrap; }
+  tbody td { padding: 10px 14px; border-bottom: 1px solid var(--border); font-size: 13px; vertical-align: top; }
+  tbody tr:last-child td { border-bottom: none; }
+  tbody tr:hover { background: var(--surface2); }
+  .mono { font-family: 'Courier New', monospace; font-size: 12px; }
+
+  /* ── Badges ── */
+  .badge { display: inline-block; border-radius: 4px; padding: 2px 8px; font-size: 11px; font-weight: 600; white-space: nowrap; }
+  .badge-blue   { background: rgba(91,141,238,.18); color: #7daaff; border: 1px solid rgba(91,141,238,.3); }
+  .badge-pink   { background: rgba(224,92,138,.18); color: #f07aa8; border: 1px solid rgba(224,92,138,.3); }
+  .badge-teal   { background: rgba(78,205,196,.18); color: #5dd8d0; border: 1px solid rgba(78,205,196,.3); }
+  .badge-amber  { background: rgba(247,183,49,.18); color: #f7c94a; border: 1px solid rgba(247,183,49,.3); }
+  .badge-purple { background: rgba(175,82,222,.18); color: #c47ef5; border: 1px solid rgba(175,82,222,.3); }
+  .badge-gray   { background: rgba(122,130,168,.15); color: var(--muted); border: 1px solid var(--border); }
+
+  /* ── IS map ── */
+  #is-map-svg { width: 100%; overflow: visible; }
+  .map-container { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 24px; margin-bottom: 32px; }
+
+  /* ── Legend ── */
+  .legend { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 16px; }
+  .legend-item { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); }
+  .legend-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+
+  /* ── Interpretation ── */
+  .interp-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 28px; }
+  .interp-card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 22px; }
+  .interp-card h4 { font-size: 13px; font-weight: 600; color: var(--accent); margin-bottom: 10px; display: flex; align-items: center; gap: 8px; }
+  .interp-card p, .interp-card li { color: var(--muted); font-size: 13px; line-height: 1.7; }
+  .interp-card ul { padding-left: 18px; }
+  .interp-card li { margin-bottom: 4px; }
+  .callout { background: rgba(91,141,238,.07); border: 1px solid rgba(91,141,238,.25); border-radius: 10px; padding: 20px 24px; margin-bottom: 28px; }
+  .callout p { color: var(--text); font-size: 13.5px; line-height: 1.8; }
+  .callout strong { color: var(--accent); }
+
+  @media (max-width: 760px) {
+    main { padding: 20px 16px; }
+    header { padding: 20px 16px; }
+    nav { padding: 0 16px; }
+    .two-col, .interp-grid { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Serratia Genomic Analysis &mdash; <span>S. fonticola</span> DSM 4576</h1>
+  <p class="sub">Reference genome survey · 25 Serratia species · 6 analysis pipelines</p>
+  <div class="tag-row">
+    <span class="tag highlight">S. fonticola NZ_CP011254.1</span>
+    <span class="tag">MOB-Suite</span>
+    <span class="tag">AMRFinder</span>
+    <span class="tag">CARD RGI</span>
+    <span class="tag">PlasmidFinder</span>
+    <span class="tag">IntegronFinder</span>
+    <span class="tag">ISEScan</span>
+  </div>
+</header>
+
+<nav>
+  <button class="active" onclick="show('overview',this)">🧬 Overview</button>
+  <button onclick="show('amr',this)">💊 AMR Finder</button>
+  <button onclick="show('card',this)">🎯 CARD RGI</button>
+  <button onclick="show('is',this)">🔀 IS Elements</button>
+  <button onclick="show('compare',this)">📊 Genus Comparison</button>
+  <button onclick="show('interp',this)">🔬 Interpretation</button>
+</nav>
+
+<main>
+
+<!-- ═══════════════════════════ OVERVIEW ═══════════════════════════ -->
+<section id="overview" class="section active">
+  <h2>Genome Overview</h2>
+  <p class="section-desc">Complete chromosome of <em>Serratia fonticola</em> strain DSM 4576 — a type strain isolated from freshwater springs.</p>
+
+  <div class="card-grid">
+    <div class="card"><div class="val">6.00 Mb</div><div class="label">Genome Size</div><div class="detail">NZ_CP011254.1</div></div>
+    <div class="card"><div class="val">53.6%</div><div class="label">GC Content</div><div class="detail">Typical for Serratia</div></div>
+    <div class="card"><div class="val ok">0</div><div class="label">Plasmids</div><div class="detail">Entirely chromosomal</div></div>
+    <div class="card"><div class="val ok">0</div><div class="label">Integrons</div><div class="detail">No integron structures</div></div>
+    <div class="card"><div class="val warn">34</div><div class="label">IS Elements</div><div class="detail">7 IS families</div></div>
+    <div class="card"><div class="val">2</div><div class="label">Core AMR Genes</div><div class="detail">Both β-lactamases</div></div>
+    <div class="card"><div class="val">19</div><div class="label">CARD RGI Hits</div><div class="detail">Strict + perfect</div></div>
+    <div class="card"><div class="val">25</div><div class="label">Species Compared</div><div class="detail">Full genus survey</div></div>
+  </div>
+
+  <div class="two-col">
+    <div class="chart-box">
+      <h3>Analysis Summary</h3>
+      <canvas id="summaryChart"></canvas>
+    </div>
+    <div class="chart-box">
+      <h3>CARD RGI Resistance Mechanisms</h3>
+      <canvas id="mechChart"></canvas>
+    </div>
+  </div>
+
+  <div class="table-wrap">
+    <table>
+      <thead><tr>
+        <th>Analysis</th><th>Tool</th><th>Result</th><th>Key Finding</th>
+      </tr></thead>
+      <tbody>
+        <tr><td>Mobile Elements</td><td class="mono">MOB-Suite</td><td><span class="badge badge-teal">Chromosome only</span></td><td>Single 6.0 Mb chromosome, no plasmid elements detected</td></tr>
+        <tr><td>Core AMR Genes</td><td class="mono">AMRFinder</td><td><span class="badge badge-amber">2 genes</span></td><td>blaSFDC (Class C β-lactamase) &amp; blaFONA-1 (Class A β-lactamase)</td></tr>
+        <tr><td>Resistance Genes</td><td class="mono">CARD RGI</td><td><span class="badge badge-amber">19 hits</span></td><td>11 efflux pumps, 3 inactivation enzymes, 5 target alteration genes</td></tr>
+        <tr><td>Plasmid Replicons</td><td class="mono">PlasmidFinder</td><td><span class="badge badge-teal">None detected</span></td><td>Negative against all replicon families (Inc, Rep, NT)</td></tr>
+        <tr><td>Integrons</td><td class="mono">IntegronFinder</td><td><span class="badge badge-teal">None detected</span></td><td>No CALIN, complete, or In0 integrons found</td></tr>
+        <tr><td>Insertion Sequences</td><td class="mono">ISEScan</td><td><span class="badge badge-pink">34 elements</span></td><td>7 IS families; IS481 &amp; IS110 dominant (8 copies each)</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<!-- ═══════════════════════════ AMR FINDER ═══════════════════════════ -->
+<section id="amr" class="section">
+  <h2>AMR Finder Results</h2>
+  <p class="section-desc">NCBI AMRFinder identifies intrinsic and acquired resistance genes with validated curated reference sequences. Only genes with ≥90% identity are reported as core genes.</p>
+
+  <div class="card-grid">
+    <div class="card"><div class="val">2</div><div class="label">Genes in S. fonticola</div><div class="detail">Both β-lactam resistance</div></div>
+    <div class="card"><div class="val">100%</div><div class="label">Reference Coverage</div><div class="detail">Full-length matches</div></div>
+    <div class="card"><div class="val ok">97–100%</div><div class="label">Identity Range</div><div class="detail">High confidence calls</div></div>
+    <div class="card"><div class="val">14</div><div class="label">Species with ≥1 Gene</div><div class="detail">56% of genus</div></div>
+  </div>
+
+  <h3>S. fonticola — Core AMR Genes</h3>
+  <div class="table-wrap">
+    <table>
+      <thead><tr>
+        <th>Gene Symbol</th><th>Gene Name</th><th>Class</th><th>Subclass</th><th>Method</th>
+        <th>% Coverage</th><th>% Identity</th><th>Position (bp)</th><th>Strand</th>
+      </tr></thead>
+      <tbody>
+        <tr>
+          <td><strong class="mono">blaSFDC</strong></td>
+          <td>SFDC family class C beta-lactamase</td>
+          <td><span class="badge badge-blue">BETA-LACTAM</span></td>
+          <td><span class="badge badge-amber">CEPHALOSPORIN</span></td>
+          <td class="mono">BLASTX</td>
+          <td>100.00%</td><td>97.12%</td>
+          <td class="mono">4,730,034–4,731,179</td><td>–</td>
+        </tr>
+        <tr>
+          <td><strong class="mono">blaFONA-1</strong></td>
+          <td>Class A beta-lactamase FONA-1</td>
+          <td><span class="badge badge-blue">BETA-LACTAM</span></td>
+          <td><span class="badge badge-blue">BETA-LACTAM</span></td>
+          <td class="mono">ALLELEX</td>
+          <td>100.00%</td><td>100.00%</td>
+          <td class="mono">4,785,903–4,786,787</td><td>–</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="full-chart">
+    <h3>AMR Gene Count Across All 25 Serratia Species</h3>
+    <canvas id="amrBarChart"></canvas>
+  </div>
+
+  <h3>All AMR Genes Detected Across the Genus</h3>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Species</th><th>Gene</th><th>Full Name</th><th>Class</th><th>Subclass</th><th>% Identity</th></tr></thead>
+      <tbody>
+        <tr><td>bockelmannii</td><td class="mono">blaSRT</td><td>SRT/SST family class C β-lactamase</td><td><span class="badge badge-blue">BETA-LACTAM</span></td><td>Cephalosporin</td><td>98.68%</td></tr>
+        <tr><td>bockelmannii</td><td class="mono">tet(41)</td><td>Tetracycline efflux MFS transporter</td><td><span class="badge badge-pink">TETRACYCLINE</span></td><td>Tetracycline</td><td>96.94%</td></tr>
+        <tr><td>bockelmannii</td><td class="mono">aac(6')</td><td>Aminoglycoside 6'-N-acetyltransferase</td><td><span class="badge badge-teal">AMINOGLYCOSIDE</span></td><td>Aminoglycoside</td><td>99.32%</td></tr>
+        <tr style="background:rgba(91,141,238,.06)"><td><strong>fonticola ★</strong></td><td class="mono">blaSFDC</td><td>SFDC family class C β-lactamase</td><td><span class="badge badge-blue">BETA-LACTAM</span></td><td>Cephalosporin</td><td>97.12%</td></tr>
+        <tr style="background:rgba(91,141,238,.06)"><td><strong>fonticola ★</strong></td><td class="mono">blaFONA-1</td><td>Class A β-lactamase FONA-1</td><td><span class="badge badge-blue">BETA-LACTAM</span></td><td>Beta-lactam</td><td>100.00%</td></tr>
+        <tr><td>liquefaciens</td><td class="mono">ampC_Sliq-1</td><td>Cephalosporin-hydrolyzing class C β-lactamase</td><td><span class="badge badge-blue">BETA-LACTAM</span></td><td>Cephalosporin</td><td>99.21%</td></tr>
+        <tr><td>liquefaciens</td><td class="mono">qac</td><td>SMR family multidrug resistance efflux protein</td><td><span class="badge badge-gray">QUAT. AMMONIUM</span></td><td>Quaternary ammonium</td><td>90.00%</td></tr>
+        <tr><td>marcescens</td><td class="mono">blaSRT</td><td>SRT/SST family class C β-lactamase</td><td><span class="badge badge-blue">BETA-LACTAM</span></td><td>Cephalosporin</td><td>97.88%</td></tr>
+        <tr><td>marcescens</td><td class="mono">tet(41)</td><td>Tetracycline efflux MFS transporter</td><td><span class="badge badge-pink">TETRACYCLINE</span></td><td>Tetracycline</td><td>96.17%</td></tr>
+        <tr><td>marcescens</td><td class="mono">aac(6')</td><td>Aminoglycoside 6'-N-acetyltransferase</td><td><span class="badge badge-teal">AMINOGLYCOSIDE</span></td><td>Aminoglycoside</td><td>100.00%</td></tr>
+        <tr><td>montpellierensis</td><td class="mono">blaSRT</td><td>SRT/SST family class C β-lactamase</td><td><span class="badge badge-blue">BETA-LACTAM</span></td><td>Cephalosporin</td><td>98.41%</td></tr>
+        <tr><td>montpellierensis</td><td class="mono">aac(6')</td><td>Aminoglycoside 6'-N-acetyltransferase</td><td><span class="badge badge-teal">AMINOGLYCOSIDE</span></td><td>Aminoglycoside</td><td>98.63%</td></tr>
+        <tr><td>nematodiphila</td><td class="mono">blaSRT</td><td>SRT/SST family class C β-lactamase</td><td><span class="badge badge-blue">BETA-LACTAM</span></td><td>Cephalosporin</td><td>97.38%</td></tr>
+        <tr><td>nematodiphila</td><td class="mono">tet(41)</td><td>Tetracycline efflux MFS transporter</td><td><span class="badge badge-pink">TETRACYCLINE</span></td><td>Tetracycline</td><td>96.17%</td></tr>
+        <tr><td>nematodiphila</td><td class="mono">aac(6')</td><td>Aminoglycoside 6'-N-acetyltransferase</td><td><span class="badge badge-teal">AMINOGLYCOSIDE</span></td><td>Aminoglycoside</td><td>96.58%</td></tr>
+        <tr><td>nevei</td><td class="mono">blaSRT</td><td>SRT/SST family class C β-lactamase</td><td><span class="badge badge-blue">BETA-LACTAM</span></td><td>Cephalosporin</td><td>99.47%</td></tr>
+        <tr><td>nevei</td><td class="mono">tet(41)</td><td>Tetracycline efflux MFS transporter</td><td><span class="badge badge-pink">TETRACYCLINE</span></td><td>Tetracycline</td><td>99.49%</td></tr>
+        <tr><td>nevei</td><td class="mono">aac(6')</td><td>Aminoglycoside 6'-N-acetyltransferase</td><td><span class="badge badge-teal">AMINOGLYCOSIDE</span></td><td>Aminoglycoside</td><td>99.32%</td></tr>
+        <tr><td>proteamaculans</td><td class="mono">blaSPR</td><td>SPR family subclass B3 metallo-β-lactamase</td><td><span class="badge badge-blue">BETA-LACTAM</span></td><td>Beta-lactam</td><td>92.62%</td></tr>
+        <tr><td>quinivorans</td><td class="mono">blaSPR</td><td>SPR family subclass B3 metallo-β-lactamase</td><td><span class="badge badge-blue">BETA-LACTAM</span></td><td>Beta-lactam</td><td>99.33%</td></tr>
+        <tr><td>rubidaea</td><td class="mono">blaRUB-1</td><td>Broad-spectrum class A β-lactamase RUB-1</td><td><span class="badge badge-blue">BETA-LACTAM</span></td><td>Beta-lactam</td><td>100.00%</td></tr>
+        <tr><td>sarumanii</td><td class="mono">blaSRT-2</td><td>Cephalosporin-hydrolyzing class C β-lactamase</td><td><span class="badge badge-blue">BETA-LACTAM</span></td><td>Cephalosporin</td><td>100.00%</td></tr>
+        <tr><td>sarumanii</td><td class="mono">aac(6')</td><td>Aminoglycoside 6'-N-acetyltransferase</td><td><span class="badge badge-teal">AMINOGLYCOSIDE</span></td><td>Aminoglycoside</td><td>100.00%</td></tr>
+        <tr><td>silvae</td><td class="mono">blaSFDC</td><td>SFDC family class C β-lactamase</td><td><span class="badge badge-blue">BETA-LACTAM</span></td><td>Cephalosporin</td><td>97.91%</td></tr>
+        <tr><td>silvae</td><td class="mono">blaFONA</td><td>FONA family class A β-lactamase</td><td><span class="badge badge-blue">BETA-LACTAM</span></td><td>Beta-lactam</td><td>97.63%</td></tr>
+        <tr><td>surfactantfaciens</td><td class="mono">blaSRT</td><td>SRT/SST family class C β-lactamase</td><td><span class="badge badge-blue">BETA-LACTAM</span></td><td>Cephalosporin</td><td>96.83%</td></tr>
+        <tr><td>surfactantfaciens</td><td class="mono">tet(41)</td><td>Tetracycline efflux MFS transporter</td><td><span class="badge badge-pink">TETRACYCLINE</span></td><td>Tetracycline</td><td>94.15%</td></tr>
+        <tr><td>surfactantfaciens</td><td class="mono">aac(6')</td><td>Aminoglycoside 6'-N-acetyltransferase</td><td><span class="badge badge-teal">AMINOGLYCOSIDE</span></td><td>Aminoglycoside</td><td>99.32%</td></tr>
+        <tr><td>symbiotica</td><td class="mono">qac</td><td>SMR family multidrug resistance efflux protein</td><td><span class="badge badge-gray">QUAT. AMMONIUM</span></td><td>Quaternary ammonium</td><td>91.82%</td></tr>
+        <tr><td>ureilytica</td><td class="mono">blaSRT-3</td><td>Class C β-lactamase SRT-3</td><td><span class="badge badge-blue">BETA-LACTAM</span></td><td>Cephalosporin</td><td>100.00%</td></tr>
+        <tr><td>ureilytica</td><td class="mono">tet(41)</td><td>Tetracycline efflux MFS transporter</td><td><span class="badge badge-pink">TETRACYCLINE</span></td><td>Tetracycline</td><td>96.17%</td></tr>
+        <tr><td>ureilytica</td><td class="mono">aac(6')</td><td>Aminoglycoside 6'-N-acetyltransferase</td><td><span class="badge badge-teal">AMINOGLYCOSIDE</span></td><td>Aminoglycoside</td><td>98.63%</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<!-- ═══════════════════════════ CARD RGI ═══════════════════════════ -->
+<section id="card" class="section">
+  <h2>CARD RGI Analysis</h2>
+  <p class="section-desc">The Comprehensive Antibiotic Resistance Database (CARD) Resistance Gene Identifier predicts resistomes using curated models. Results include perfect, strict, and loose hits against the CARD ontology.</p>
+
+  <div class="card-grid">
+    <div class="card"><div class="val">19</div><div class="label">Total CARD Hits</div><div class="detail">S. fonticola DSM 4576</div></div>
+    <div class="card"><div class="val">11</div><div class="label">Efflux Pumps</div><div class="detail">RND, MFS, ABC, SMR types</div></div>
+    <div class="card"><div class="val">3</div><div class="label">Enzyme Inactivation</div><div class="detail">2 β-lactamases + FosA8</div></div>
+    <div class="card"><div class="val">5</div><div class="label">Target Alteration</div><div class="detail">van, PBP, EF-Tu, ArnT</div></div>
+  </div>
+
+  <div class="two-col">
+    <div class="chart-box">
+      <h3>Resistance Mechanisms</h3>
+      <canvas id="cardMechDonut"></canvas>
+    </div>
+    <div class="chart-box">
+      <h3>Drug Classes Covered</h3>
+      <canvas id="drugClassChart"></canvas>
+    </div>
+  </div>
+
+  <h3>Full CARD RGI Results — S. fonticola</h3>
+  <div class="table-wrap">
+    <table>
+      <thead><tr>
+        <th>#</th><th>Best Hit ARO</th><th>Drug Class</th><th>Mechanism</th><th>Gene Family</th>
+      </tr></thead>
+      <tbody>
+        <tr><td>1</td><td class="mono">adeF</td><td>Fluoroquinolone; Tetracycline</td><td><span class="badge badge-blue">Efflux</span></td><td>RND pump</td></tr>
+        <tr><td>2</td><td class="mono">emrR</td><td>Fluoroquinolone</td><td><span class="badge badge-blue">Efflux</span></td><td>MFS pump</td></tr>
+        <tr><td>3</td><td class="mono">KpnH</td><td>Macrolide; Fluoroquinolone; Aminoglycoside; Carbapenem; Cephalosporin; Penicillin; Peptide</td><td><span class="badge badge-blue">Efflux</span></td><td>MFS pump</td></tr>
+        <tr><td>4</td><td class="mono">CRP</td><td>Macrolide; Fluoroquinolone; Penicillin</td><td><span class="badge badge-blue">Efflux</span></td><td>RND pump</td></tr>
+        <tr><td>5</td><td class="mono">rsmA</td><td>Fluoroquinolone; Diaminopyrimidine; Phenicol</td><td><span class="badge badge-blue">Efflux</span></td><td>RND pump</td></tr>
+        <tr><td>6</td><td class="mono">adeF</td><td>Fluoroquinolone; Tetracycline</td><td><span class="badge badge-blue">Efflux</span></td><td>RND pump</td></tr>
+        <tr><td>7</td><td class="mono">vanG</td><td>Glycopeptide</td><td><span class="badge badge-purple">Target alteration</span></td><td>Van ligase</td></tr>
+        <tr><td>8</td><td class="mono">msbA</td><td>Nitroimidazole</td><td><span class="badge badge-blue">Efflux</span></td><td>ABC pump</td></tr>
+        <tr><td>9</td><td class="mono">ArnT</td><td>Peptide</td><td><span class="badge badge-purple">Target alteration</span></td><td>pmr phosphoethanolamine transferase</td></tr>
+        <tr><td>10</td><td class="mono">SFDC-1</td><td>Cephalosporin</td><td><span class="badge badge-teal">Inactivation</span></td><td>SFDC β-lactamase</td></tr>
+        <tr><td>11</td><td class="mono">adeF</td><td>Fluoroquinolone; Tetracycline</td><td><span class="badge badge-blue">Efflux</span></td><td>RND pump</td></tr>
+        <tr><td>12</td><td class="mono">FONA-1</td><td>Penicillin</td><td><span class="badge badge-teal">Inactivation</span></td><td>FONA β-lactamase</td></tr>
+        <tr><td>13</td><td class="mono">qacG</td><td>Disinfectants &amp; Antiseptics</td><td><span class="badge badge-blue">Efflux</span></td><td>SMR pump</td></tr>
+        <tr><td>14</td><td class="mono">KpnF</td><td>Macrolide; Aminoglycoside; Cephalosporin; Tetracycline; Peptide; Rifamycin; Disinfectants</td><td><span class="badge badge-blue">Efflux</span></td><td>SMR pump</td></tr>
+        <tr><td>15</td><td class="mono">vanW</td><td>Glycopeptide</td><td><span class="badge badge-purple">Target alteration</span></td><td>vanW / glycopeptide resistance cluster</td></tr>
+        <tr><td>16</td><td class="mono">FosA8</td><td>Phosphonic acid (Fosfomycin)</td><td><span class="badge badge-teal">Inactivation</span></td><td>Fosfomycin thiol transferase</td></tr>
+        <tr><td>17</td><td class="mono">EF-Tu (1)</td><td>Elfamycin</td><td><span class="badge badge-purple">Target alteration</span></td><td>Elfamycin-resistant EF-Tu</td></tr>
+        <tr><td>18</td><td class="mono">EF-Tu (2)</td><td>Elfamycin</td><td><span class="badge badge-purple">Target alteration</span></td><td>Elfamycin-resistant EF-Tu</td></tr>
+        <tr><td>19</td><td class="mono">PBP3</td><td>Cephalosporin; Penicillin</td><td><span class="badge badge-purple">Target alteration</span></td><td>Penicillin-binding protein mutations</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<!-- ═══════════════════════════ IS ELEMENTS ═══════════════════════════ -->
+<section id="is" class="section">
+  <h2>Insertion Sequence Elements</h2>
+  <p class="section-desc">ISEScan detected 34 insertion sequence elements across the S. fonticola chromosome, spanning 7 distinct IS families. These mobile elements contribute to genomic plasticity and potential for horizontal gene transfer.</p>
+
+  <div class="card-grid">
+    <div class="card"><div class="val warn">34</div><div class="label">Total IS Elements</div></div>
+    <div class="card"><div class="val">7</div><div class="label">IS Families</div></div>
+    <div class="card"><div class="val">8</div><div class="label">IS481 copies</div><div class="detail">Most abundant family</div></div>
+    <div class="card"><div class="val">8</div><div class="label">IS110 copies</div><div class="detail">Joint most abundant</div></div>
+    <div class="card"><div class="val ok">26</div><div class="label">Complete (type c)</div><div class="detail">With proper IRs</div></div>
+    <div class="card"><div class="val">8</div><div class="label">Partial (type p)</div><div class="detail">Truncated elements</div></div>
+  </div>
+
+  <div class="two-col">
+    <div class="chart-box">
+      <h3>IS Family Distribution</h3>
+      <canvas id="isDonut"></canvas>
+    </div>
+    <div class="chart-box">
+      <h3>Element Type (Complete vs Partial)</h3>
+      <canvas id="isTypeChart"></canvas>
+    </div>
+  </div>
+
+  <div class="map-container">
+    <h3>IS Element Positions on Chromosome (6.0 Mb)</h3>
+    <svg id="is-map-svg" height="130"></svg>
+    <div class="legend" id="is-legend"></div>
+  </div>
+
+  <h3>Full IS Element Table</h3>
+  <div class="table-wrap">
+    <table>
+      <thead><tr>
+        <th>Family</th><th>Cluster</th><th>Start (bp)</th><th>End (bp)</th><th>Length</th><th>Copies (family)</th><th>Type</th><th>E-value</th>
+      </tr></thead>
+      <tbody id="is-table-body"></tbody>
+    </table>
+  </div>
+</section>
+
+<!-- ═══════════════════════════ COMPARISON ═══════════════════════════ -->
+<section id="compare" class="section">
+  <h2>Genus-wide Comparison</h2>
+  <p class="section-desc">AMRFinder results across all 25 Serratia reference genomes reveal conserved and species-specific resistance gene distributions.</p>
+
+  <div class="card-grid">
+    <div class="card"><div class="val">25</div><div class="label">Species Compared</div></div>
+    <div class="card"><div class="val">11</div><div class="label">Species with no AMR genes</div><div class="detail">44% of genus</div></div>
+    <div class="card"><div class="val">3</div><div class="label">Max AMR genes (any species)</div><div class="detail">5 species tied</div></div>
+    <div class="card"><div class="val ok">100%</div><div class="label">β-lactam prevalence</div><div class="detail">All AMR+ species carry bla genes</div></div>
+  </div>
+
+  <div class="full-chart">
+    <h3>AMR Gene Count per Species (AMRFinder)</h3>
+    <canvas id="speciesCompareChart"></canvas>
+  </div>
+
+  <div class="full-chart">
+    <h3>AMR Gene Class Prevalence Across Genus</h3>
+    <canvas id="classPrevalChart"></canvas>
+  </div>
+
+  <h3>β-lactamase Gene Diversity</h3>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Gene</th><th>Class</th><th>Species Carrying It</th><th>Typical Identity</th></tr></thead>
+      <tbody>
+        <tr><td class="mono">blaSRT / blaSRT-2 / blaSRT-3</td><td>Class C</td><td>bockelmannii, marcescens, montpellierensis, nematodiphila, nevei, sarumanii, surfactantfaciens, ureilytica</td><td>96–100%</td></tr>
+        <tr style="background:rgba(91,141,238,.06)"><td class="mono">blaSFDC</td><td>Class C</td><td><strong>fonticola ★</strong>, silvae</td><td>97–98%</td></tr>
+        <tr style="background:rgba(91,141,238,.06)"><td class="mono">blaFONA-1 / blaFONA</td><td>Class A</td><td><strong>fonticola ★</strong>, silvae</td><td>98–100%</td></tr>
+        <tr><td class="mono">blaSPR</td><td>Class B3 (MBL)</td><td>proteamaculans, quinivorans</td><td>92–99%</td></tr>
+        <tr><td class="mono">ampC_Sliq-1</td><td>Class C</td><td>liquefaciens</td><td>99.21%</td></tr>
+        <tr><td class="mono">blaRUB-1</td><td>Class A</td><td>rubidaea</td><td>100%</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<!-- ═══════════════════════════ INTERPRETATION ═══════════════════════════ -->
+<section id="interp" class="section">
+  <h2>Interpretation</h2>
+  <p class="section-desc">Integrated analysis of all six pipelines for <em>Serratia fonticola</em> DSM 4576 in the context of the Serratia genus.</p>
+
+  <div class="callout">
+    <p><strong>Summary:</strong> <em>S. fonticola</em> DSM 4576 is an environmentally stable, entirely chromosomal genome with a unique β-lactamase complement (blaSFDC + blaFONA-1) shared only with <em>S. silvae</em>. Despite carrying no plasmids, integrons, or transferable resistance clusters, the genome is peppered with 34 insertion sequences representing a significant source of genomic plasticity. Its CARD resistome is broad but dominated by intrinsic chromosomal efflux machinery rather than acquired elements, consistent with its non-clinical, freshwater origin.</p>
+  </div>
+
+  <div class="interp-grid">
+    <div class="interp-card">
+      <h4>🧬 Genome Architecture</h4>
+      <ul>
+        <li>Single circular chromosome of 6.00 Mb (53.6% GC) — no plasmids confirmed by both MOB-Suite and PlasmidFinder</li>
+        <li>Absence of integrons means no integron-mediated cassette capture; resistance genes cannot be rapidly reshuffled via this route</li>
+        <li>Genome is a closed, complete reference assembly (NZ_CP011254.1), providing high confidence in gene-absence calls</li>
+      </ul>
+    </div>
+    <div class="interp-card">
+      <h4>💊 β-Lactam Resistance</h4>
+      <ul>
+        <li><strong>blaSFDC</strong> encodes an extended-spectrum class C β-lactamase (AmpC-type), conferring intrinsic cephalosporin resistance. At 97.1% identity it is a native chromosomal gene, not a recent acquisition</li>
+        <li><strong>blaFONA-1</strong> is a class A β-lactamase with 100% identity to the reference — the defining resistance gene of S. fonticola, reported since the 1980s</li>
+        <li>The blaSFDC + blaFONA-1 pairing is unique to fonticola/silvae, distinguishing them from the SRT-dominated clade (marcescens, bockelmannii, nevei, etc.)</li>
+      </ul>
+    </div>
+    <div class="interp-card">
+      <h4>🔀 Mobile Genetic Elements</h4>
+      <ul>
+        <li>34 IS elements from 7 families distributed across the full 6 Mb chromosome (~1 per 176 kb)</li>
+        <li>IS481 (×8) and IS110 (×8) dominate; their multicopy nature raises the probability of IS-mediated recombination and gene disruption events</li>
+        <li>IS200/IS605 elements (×6) are known to transpose without host machinery — notable for cryptic mobility</li>
+        <li>Most elements are complete (type 'c', 76%), indicating active or recently active transposons</li>
+      </ul>
+    </div>
+    <div class="interp-card">
+      <h4>🎯 Broader Resistome (CARD RGI)</h4>
+      <ul>
+        <li>11 of 19 hits are efflux pumps spanning RND, MFS, ABC, and SMR families — characteristic of intrinsic, chromosomally-encoded multidrug efflux</li>
+        <li>vanG/vanW glycopeptide resistance genes are noteworthy but likely represent a chromosomal van cluster rather than acquired vancomycin resistance (low-level intrinsic)</li>
+        <li>FosA8 fosfomycin thiol transferase and EF-Tu mutations (elfamycin) are unusual findings that warrant experimental validation</li>
+        <li>PBP3 alteration suggests reduced susceptibility to some β-lactams independently of β-lactamase activity</li>
+      </ul>
+    </div>
+    <div class="interp-card">
+      <h4>📊 Genus Context</h4>
+      <ul>
+        <li>44% of Serratia species carry no core AMR genes by AMRFinder — including the environmental species aquatilis, entomophila, ficaria, grimesii, etc.</li>
+        <li>The "SRT clade" (bockelmannii, marcescens, nevei, nematodiphila, surfactantfaciens, ureilytica) consistently carry blaSRT + tet(41) + aac(6') — a conserved three-gene intrinsic resistance cluster</li>
+        <li>S. fonticola diverges from this clade entirely, carrying distinct class A + class C β-lactamases with no tetracycline or aminoglycoside genes</li>
+        <li>S. symbiotica (insect endosymbiont) carries only a qac gene, reflecting its reduced/adapted genome</li>
+      </ul>
+    </div>
+    <div class="interp-card">
+      <h4>⚠️ Clinical &amp; Ecological Implications</h4>
+      <ul>
+        <li>S. fonticola is rarely clinical but has been isolated from immunocompromised patients — its dual β-lactamase profile means penicillin and cephalosporin monotherapy would likely fail</li>
+        <li>No transferable resistance elements (plasmids, integrons) detected, limiting HGT risk to IS-mediated events</li>
+        <li>The high IS element load (34 copies) indicates genomic instability potential, which could drive adaptation under antibiotic selection</li>
+        <li>Freshwater environmental reservoir role: monitoring water sources for S. fonticola may be warranted in clinical catchment areas</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+</main>
+
+<script>
+// ── Navigation ──────────────────────────────────────────────
+function show(id, btn) {
+  document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
+  document.querySelectorAll('nav button').forEach(b => b.classList.remove('active'));
+  document.getElementById(id).classList.add('active');
+  btn.classList.add('active');
+  // lazy-init charts
+  if (!window._chartsInit) { window._chartsInit = {}; }
+  if (!window._chartsInit[id]) { window._chartsInit[id] = true; initCharts(id); }
+}
+
+// ── Shared Chart Defaults ────────────────────────────────────
+Chart.defaults.color = '#7a82a8';
+Chart.defaults.borderColor = '#2e3350';
+Chart.defaults.font.family = 'Segoe UI, system-ui, sans-serif';
+Chart.defaults.font.size = 12;
+
+const PALETTE = ['#5b8dee','#e05c8a','#4ecdc4','#f7b731','#af52de','#ff6b6b','#a8e063','#fd9644'];
+const MUTED_PALETTE = (n) => PALETTE.slice(0, n);
+
+// ── IS element raw data ──────────────────────────────────────
+const isData = [
+  {family:'IS3',     cluster:'IS3_61',          start:133799,   end:134250,  len:452,  ncopy:1, type:'p', eval:'2e-54'},
+  {family:'IS110',   cluster:'IS110_219',        start:246185,   end:247378,  len:1194, ncopy:6, type:'c', eval:'9.4e-67'},
+  {family:'IS481',   cluster:'IS481_178',        start:552647,   end:553931,  len:1285, ncopy:7, type:'c', eval:'1.1e-49'},
+  {family:'IS110',   cluster:'IS110_219',        start:553944,   end:555137,  len:1194, ncopy:6, type:'c', eval:'9.4e-67'},
+  {family:'IS481',   cluster:'IS481_178',        start:758676,   end:759960,  len:1285, ncopy:7, type:'c', eval:'1.1e-49'},
+  {family:'IS110',   cluster:'IS110_236',        start:968667,   end:969984,  len:1318, ncopy:1, type:'c', eval:'9e-101'},
+  {family:'IS200/IS605', cluster:'IS200/IS605_96', start:1197565, end:1198859, len:1295, ncopy:3, type:'c', eval:'1.5e-151'},
+  {family:'ISNCY',   cluster:'ISNCY_229',        start:1888085,  end:1889848, len:1764, ncopy:1, type:'p', eval:'4.8e-160'},
+  {family:'IS1595',  cluster:'IS1595_235',       start:1914510,  end:1915403, len:894,  ncopy:1, type:'p', eval:'7.6e-15'},
+  {family:'IS200/IS605', cluster:'IS200/IS605_384', start:1925299, end:1925772, len:474, ncopy:3, type:'c', eval:'1.7e-70'},
+  {family:'IS110',   cluster:'IS110_219',        start:1984038,  end:1985274, len:1237, ncopy:6, type:'c', eval:'9.4e-67'},
+  {family:'IS481',   cluster:'IS481_178',        start:2027035,  end:2028319, len:1285, ncopy:7, type:'c', eval:'1.1e-49'},
+  {family:'IS3',     cluster:'IS3_61',           start:2032089,  end:2033557, len:1469, ncopy:2, type:'c', eval:'1.2e-124'},
+  {family:'IS110',   cluster:'IS110_219',        start:2113308,  end:2114538, len:1231, ncopy:6, type:'c', eval:'9.4e-67'},
+  {family:'IS200/IS605', cluster:'IS200/IS605_384', start:2203034, end:2203748, len:715, ncopy:3, type:'c', eval:'1.7e-70'},
+  {family:'ISNCY',   cluster:'ISNCY_86',         start:2450034,  end:2451499, len:1466, ncopy:1, type:'c', eval:'1.9e-192'},
+  {family:'IS110',   cluster:'IS110_219',        start:2475850,  end:2477086, len:1237, ncopy:6, type:'c', eval:'9.4e-67'},
+  {family:'IS6',     cluster:'IS6_292',          start:2891615,  end:2892399, len:785,  ncopy:1, type:'p', eval:'2.4e-33'},
+  {family:'IS481',   cluster:'IS481_240',        start:3009520,  end:3010742, len:1223, ncopy:1, type:'p', eval:'2.2e-15'},
+  {family:'IS481',   cluster:'IS481_178',        start:3120901,  end:3122185, len:1285, ncopy:7, type:'c', eval:'1.1e-49'},
+  {family:'IS481',   cluster:'IS481_178',        start:3312816,  end:3314100, len:1285, ncopy:7, type:'c', eval:'1.1e-49'},
+  {family:'IS200/IS605', cluster:'IS200/IS605_384', start:3608381, end:3608984, len:604, ncopy:3, type:'c', eval:'1.7e-70'},
+  {family:'ISNCY',   cluster:'ISNCY_229',        start:3706568,  end:3708078, len:1511, ncopy:1, type:'c', eval:'8.5e-149'},
+  {family:'IS3',     cluster:'IS3_472',          start:4074434,  end:4075792, len:1359, ncopy:1, type:'p', eval:'8.2e-27'},
+  {family:'IS3',     cluster:'IS3_176',          start:4076229,  end:4076620, len:392,  ncopy:1, type:'p', eval:'1.2e-32'},
+  {family:'IS200/IS605', cluster:'IS200/IS605_96', start:4484561, end:4485855, len:1295, ncopy:3, type:'c', eval:'1.5e-151'},
+  {family:'IS3',     cluster:'IS3_61',           start:4630495,  end:4631961, len:1467, ncopy:2, type:'c', eval:'1.2e-124'},
+  {family:'IS200/IS605', cluster:'IS200/IS605_96', start:4641779, end:4643073, len:1295, ncopy:3, type:'c', eval:'1.5e-151'},
+  {family:'ISNCY',   cluster:'ISNCY_86',         start:4706184,  end:4707608, len:1425, ncopy:1, type:'c', eval:'7.6e-243'},
+  {family:'IS110',   cluster:'IS110_208',        start:5229363,  end:5230978, len:1616, ncopy:1, type:'c', eval:'3.3e-148'},
+  {family:'IS6',     cluster:'IS6_292',          start:5240266,  end:5241059, len:794,  ncopy:1, type:'p', eval:'2.9e-13'},
+  {family:'IS481',   cluster:'IS481_178',        start:5457299,  end:5458585, len:1287, ncopy:7, type:'c', eval:'1.1e-49'},
+  {family:'IS110',   cluster:'IS110_219',        start:5860867,  end:5862103, len:1237, ncopy:6, type:'c', eval:'9.4e-67'},
+  {family:'IS481',   cluster:'IS481_178',        start:5923871,  end:5925155, len:1285, ncopy:7, type:'c', eval:'1.1e-49'},
+];
+
+const IS_COLORS = {
+  'IS481':       '#5b8dee',
+  'IS110':       '#e05c8a',
+  'IS200/IS605': '#4ecdc4',
+  'IS3':         '#f7b731',
+  'ISNCY':       '#af52de',
+  'IS6':         '#ff6b6b',
+  'IS1595':      '#a8e063',
+};
+
+// ── Populate IS table ────────────────────────────────────────
+(function() {
+  const tbody = document.getElementById('is-table-body');
+  isData.forEach(d => {
+    const tr = document.createElement('tr');
+    const col = IS_COLORS[d.family] || '#888';
+    tr.innerHTML = `
+      <td><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:${col};margin-right:6px;"></span>${d.family}</td>
+      <td class="mono">${d.cluster}</td>
+      <td class="mono">${d.start.toLocaleString()}</td>
+      <td class="mono">${d.end.toLocaleString()}</td>
+      <td class="mono">${d.len}</td>
+      <td>${d.ncopy}</td>
+      <td><span class="badge ${d.type==='c'?'badge-teal':'badge-amber'}">${d.type==='c'?'Complete':'Partial'}</span></td>
+      <td class="mono">${d.eval}</td>
+    `;
+    tbody.appendChild(tr);
+  });
+})();
+
+// ── Draw IS map (SVG) ────────────────────────────────────────
+function drawISMap() {
+  const svg = document.getElementById('is-map-svg');
+  const W = svg.parentElement.clientWidth - 48;
+  const GENOME = 6000511;
+  const trackY = 60, trackH = 18, tickY = 85;
+  svg.setAttribute('viewBox', `0 0 ${W} 130`);
+  svg.setAttribute('width', W);
+
+  // Background chromosome bar
+  svg.innerHTML = `
+    <rect x="0" y="${trackY}" width="${W}" height="${trackH}" rx="9" fill="#22263a" stroke="#2e3350"/>
+  `;
+
+  // Tick marks
+  [0, 1, 2, 3, 4, 5, 6].forEach(mb => {
+    const x = (mb * 1e6 / GENOME) * W;
+    svg.innerHTML += `
+      <line x1="${x}" y1="${tickY+2}" x2="${x}" y2="${tickY+8}" stroke="#3a4060" stroke-width="1"/>
+      <text x="${x}" y="${tickY+20}" text-anchor="middle" fill="#4a5278" font-size="10">${mb} Mb</text>
+    `;
+  });
+
+  // IS elements
+  isData.forEach(d => {
+    const x = (d.start / GENOME) * W;
+    const w = Math.max(3, ((d.end - d.start) / GENOME) * W);
+    const col = IS_COLORS[d.family] || '#888';
+    const opacity = d.type === 'p' ? 0.55 : 0.9;
+    svg.innerHTML += `
+      <rect x="${x}" y="${trackY}" width="${w}" height="${trackH}" rx="2"
+            fill="${col}" opacity="${opacity}">
+        <title>${d.family} (${d.cluster})\n${d.start.toLocaleString()}–${d.end.toLocaleString()} bp\nType: ${d.type==='c'?'Complete':'Partial'}</title>
+      </rect>
+    `;
+  });
+
+  // Legend
+  const legendEl = document.getElementById('is-legend');
+  legendEl.innerHTML = '';
+  Object.entries(IS_COLORS).forEach(([fam, col]) => {
+    const count = isData.filter(d => d.family === fam).length;
+    legendEl.innerHTML += `
+      <div class="legend-item">
+        <div class="legend-dot" style="background:${col}"></div>
+        <span>${fam} (×${count})</span>
+      </div>`;
+  });
+}
+
+// ── Chart init ───────────────────────────────────────────────
+function initCharts(section) {
+  if (section === 'overview') {
+    // Summary bar
+    new Chart(document.getElementById('summaryChart'), {
+      type: 'bar',
+      data: {
+        labels: ['AMR Finder\nGenes', 'CARD RGI\nHits', 'IS Elements', 'Plasmids', 'Integrons'],
+        datasets: [{
+          label: 'Count',
+          data: [2, 19, 34, 0, 0],
+          backgroundColor: ['#5b8dee','#e05c8a','#f7b731','#4ecdc4','#4ecdc4'],
+          borderRadius: 5,
+        }]
+      },
+      options: {
+        responsive: true, maintainAspectRatio: true,
+        plugins: { legend: { display: false } },
+        scales: {
+          x: { grid: { display: false } },
+          y: { grid: { color: '#1e2235' }, beginAtZero: true }
+        }
+      }
+    });
+    // Mechanism donut (overview)
+    new Chart(document.getElementById('mechChart'), {
+      type: 'doughnut',
+      data: {
+        labels: ['Efflux', 'Target Alteration', 'Inactivation'],
+        datasets: [{ data: [11, 5, 3], backgroundColor: ['#5b8dee','#af52de','#4ecdc4'], borderWidth: 0 }]
+      },
+      options: {
+        responsive: true, maintainAspectRatio: true,
+        plugins: { legend: { position: 'bottom' } },
+        cutout: '65%'
+      }
+    });
+  }
+
+  if (section === 'amr') {
+    const species = [
+      'aquatilis','bockelmannii','entomophila','ficaria','fonticola',
+      'grimesii','inhibens','liquefaciens','marcescens','microhaemolytica',
+      'montpellierensis','nematodiphila','nevei','odorifera','oryzae',
+      'plymuthica_AS9','proteamaculans','quinivorans','rhizosphaerae','rubidaea',
+      'sarumanii','silvae','surfactantfaciens','symbiotica','ureilytica'
+    ];
+    const counts = [0,3,0,0,2,0,0,2,3,0,2,3,3,0,0,0,1,1,0,1,2,2,3,1,3];
+    const colors = species.map(s => s === 'fonticola' ? '#f7b731' : '#5b8dee');
+
+    new Chart(document.getElementById('amrBarChart'), {
+      type: 'bar',
+      data: {
+        labels: species,
+        datasets: [{ label: 'AMR Genes', data: counts, backgroundColor: colors, borderRadius: 4 }]
+      },
+      options: {
+        responsive: true, maintainAspectRatio: true,
+        plugins: { legend: { display: false },
+          tooltip: { callbacks: {
+            label: ctx => ` ${ctx.raw} gene${ctx.raw!==1?'s':''}${ctx.label==='fonticola'?' ★':''}`
+          }}
+        },
+        scales: {
+          x: { grid: { display: false }, ticks: { maxRotation: 45, font: { size: 11 } } },
+          y: { grid: { color: '#1e2235' }, beginAtZero: true, ticks: { stepSize: 1 } }
+        }
+      }
+    });
+  }
+
+  if (section === 'card') {
+    new Chart(document.getElementById('cardMechDonut'), {
+      type: 'doughnut',
+      data: {
+        labels: ['Antibiotic Efflux', 'Target Alteration', 'Antibiotic Inactivation'],
+        datasets: [{ data: [11, 5, 3], backgroundColor: ['#5b8dee','#af52de','#4ecdc4'], borderWidth: 0 }]
+      },
+      options: {
+        responsive: true, maintainAspectRatio: true,
+        plugins: { legend: { position: 'bottom' } },
+        cutout: '60%'
+      }
+    });
+
+    new Chart(document.getElementById('drugClassChart'), {
+      type: 'bar',
+      data: {
+        labels: ['Fluoroquinolone','Beta-lactam','Tetracycline','Glycopeptide','Aminoglycoside','Peptide','Macrolide','Disinfectants','Elfamycin','Fosfomycin','Nitroimidazole','Diaminopyrimidine','Phenicol','Rifamycin'],
+        datasets: [{
+          label: 'Hits covering drug class',
+          data: [7, 6, 4, 2, 2, 2, 2, 2, 2, 1, 1, 1, 1, 1],
+          backgroundColor: '#e05c8a', borderRadius: 4
+        }]
+      },
+      options: {
+        indexAxis: 'y',
+        responsive: true, maintainAspectRatio: true,
+        plugins: { legend: { display: false } },
+        scales: {
+          x: { grid: { color: '#1e2235' }, beginAtZero: true, ticks: { stepSize: 1 } },
+          y: { grid: { display: false }, ticks: { font: { size: 11 } } }
+        }
+      }
+    });
+  }
+
+  if (section === 'is') {
+    const families = Object.keys(IS_COLORS);
+    const fCounts = families.map(f => isData.filter(d => d.family === f).length);
+
+    new Chart(document.getElementById('isDonut'), {
+      type: 'doughnut',
+      data: {
+        labels: families,
+        datasets: [{ data: fCounts, backgroundColor: Object.values(IS_COLORS), borderWidth: 0 }]
+      },
+      options: {
+        responsive: true, maintainAspectRatio: true,
+        plugins: { legend: { position: 'bottom' } },
+        cutout: '60%'
+      }
+    });
+
+    new Chart(document.getElementById('isTypeChart'), {
+      type: 'doughnut',
+      data: {
+        labels: ['Complete (c)', 'Partial (p)'],
+        datasets: [{ data: [26, 8], backgroundColor: ['#4ecdc4','#f7b731'], borderWidth: 0 }]
+      },
+      options: {
+        responsive: true, maintainAspectRatio: true,
+        plugins: { legend: { position: 'bottom' } },
+        cutout: '60%'
+      }
+    });
+
+    drawISMap();
+  }
+
+  if (section === 'compare') {
+    const species = [
+      'aquatilis','bockelmannii','entomophila','ficaria','fonticola',
+      'grimesii','inhibens','liquefaciens','marcescens','microhaemolytica',
+      'montpellierensis','nematodiphila','nevei','odorifera','oryzae',
+      'plymuthica_AS9','proteamaculans','quinivorans','rhizosphaerae','rubidaea',
+      'sarumanii','silvae','surfactantfaciens','symbiotica','ureilytica'
+    ];
+    const counts = [0,3,0,0,2,0,0,2,3,0,2,3,3,0,0,0,1,1,0,1,2,2,3,1,3];
+    const colors = species.map(s => s==='fonticola'?'#f7b731':'#5b8dee');
+
+    new Chart(document.getElementById('speciesCompareChart'), {
+      type: 'bar',
+      data: {
+        labels: species,
+        datasets: [{ label: 'AMR Genes', data: counts, backgroundColor: colors, borderRadius: 4 }]
+      },
+      options: {
+        responsive: true, maintainAspectRatio: true,
+        plugins: { legend: { display: false },
+          tooltip: { callbacks: {
+            label: ctx => ` ${ctx.raw} AMR gene${ctx.raw!==1?'s':''}${ctx.label==='fonticola'?' ★ (fonticola)':''}`
+          }}
+        },
+        scales: {
+          x: { grid: { display: false }, ticks: { maxRotation: 50, font: { size: 11 } } },
+          y: { grid: { color: '#1e2235' }, beginAtZero: true, ticks: { stepSize: 1 } }
+        }
+      }
+    });
+
+    // Gene class prevalence stacked bar
+    const classData = {
+      'BETA-LACTAM':       [0,1,0,0,2,0,0,1,1,0,1,1,1,0,0,0,1,1,0,1,1,2,1,0,1],
+      'TETRACYCLINE':      [0,1,0,0,0,0,0,0,1,0,0,1,1,0,0,0,0,0,0,0,0,0,1,0,1],
+      'AMINOGLYCOSIDE':    [0,1,0,0,0,0,0,0,1,0,1,1,1,0,0,0,0,0,0,0,1,0,1,0,1],
+      'QUAT. AMMONIUM':    [0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0],
+    };
+    const classColors = ['#5b8dee','#f7b731','#4ecdc4','#e05c8a'];
+
+    new Chart(document.getElementById('classPrevalChart'), {
+      type: 'bar',
+      data: {
+        labels: species,
+        datasets: Object.entries(classData).map(([cls, data], i) => ({
+          label: cls, data, backgroundColor: classColors[i], borderRadius: 2
+        }))
+      },
+      options: {
+        responsive: true, maintainAspectRatio: true,
+        plugins: { legend: { position: 'bottom' } },
+        scales: {
+          x: { stacked: true, grid: { display: false }, ticks: { maxRotation: 50, font: { size: 11 } } },
+          y: { stacked: true, grid: { color: '#1e2235' }, beginAtZero: true, ticks: { stepSize: 1 } }
+        }
+      }
+    });
+  }
+}
+
+// Init overview charts immediately
+initCharts('overview');
+</script>
+</body>
+</html>

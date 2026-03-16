@@ -2,6 +2,8 @@
 nextflow.enable.dsl=2
 
 include { COLLECT_INPUTS } from './subworkflows/input'
+include { MERGE }         from './subworkflows/merge'
+include { REPORT }        from './subworkflows/report'
 
 // ============================================================
 // Parameters
@@ -12,6 +14,7 @@ params.bakta_db           = null          // Path to Bakta database directory
 params.gtdbtk_db          = null          // Path to GTDB-Tk reference data directory
 params.kofam_db           = null          // Path to KofamScan db dir (profiles/ + ko_list)
 params.eggnog_db          = null          // Path to EggNOG-mapper data directory
+params.card_db            = null          // Path to CARD db dir (card.json + variants/); auto-downloaded if absent
 params.plasmidfinder_db   = '/plasmidfinder_db' // PlasmidFinder db (default: in container)
 params.db_dir             = 'databases'         // Where auto-downloaded databases are stored
 params.outdir             = 'results'
@@ -19,19 +22,26 @@ params.min_completeness   = 80
 params.max_contamination  = 5
 
 // Pipeline stages — set to true to run each stage
-params.run_taxonomy   = true
-params.run_bakta      = true
-params.run_eggnog     = true
-params.run_amrfinder  = true
-params.run_vfdb       = true
-params.run_kofam      = true
-params.run_mge        = true
-params.run_antismash  = true
-params.run_merge      = true   // final merge to Parquet
+params.run_taxonomy       = true
+params.run_bakta          = true
+params.run_eggnog         = true
+params.run_amrfinder      = true
+params.run_card_rgi       = true   // AMR via CARD RGI (replaces abricate/VFDB)
+params.run_kofam          = true
+params.run_metabolic      = true   // Metabolic pathway reconstruction (METABOLIC)
+params.run_metabolismhmm  = true   // HMM-based metabolic marker detection (metabolisHMM)
+params.run_microtrait     = true   // Microbial functional trait inference (microTrait)
+params.run_plasmidfinder  = true   // Plasmid detection (PlasmidFinder)
+params.run_integronfinder = true   // Integron detection (IntegronFinder)
+params.run_mob_suite      = true   // Plasmid reconstruction and MOB typing (mob_suite)
+params.run_isescan        = true   // IS element detection (ISEScan)
+params.run_antismash      = true
+params.run_merge          = true   // final merge to Parquet
+params.run_report         = true   // HTML annotation report
 
 // ============================================================
 // Validate required parameters
-// Databases (bakta_db, gtdbtk_db, kofam_db, eggnog_db) are optional:
+// Databases (bakta_db, gtdbtk_db, kofam_db, eggnog_db, card_db) are optional:
 // if not provided they will be auto-downloaded to params.db_dir.
 // ============================================================
 def required_params = ['input']
@@ -49,10 +59,11 @@ required_params.each { p ->
 process DOWNLOAD_BAKTA_DB {
     storeDir "${params.db_dir}/bakta"
     container 'oschwengers/bakta:latest'
+    conda     'bioconda::bakta'
     label 'medium_cpu'
 
     output:
-    path 'db', emit: db
+    path 'db/db', emit: db
 
     script:
     """
@@ -63,6 +74,7 @@ process DOWNLOAD_BAKTA_DB {
 process DOWNLOAD_GTDBTK_DB {
     storeDir "${params.db_dir}/gtdbtk"
     container 'ecogenomics/gtdbtk:2.4.0'
+    conda     'bioconda::gtdbtk'
     label 'high_cpu'
 
     output:
@@ -80,6 +92,7 @@ process DOWNLOAD_GTDBTK_DB {
 process DOWNLOAD_KOFAM_DB {
     storeDir "${params.db_dir}/kofam"
     container 'reubenduncan/kofam_scan:amd64'
+    conda     'bioconda::kofamscan conda-forge::wget'
 
     output:
     path 'kofam_db', emit: db
@@ -100,6 +113,7 @@ process DOWNLOAD_KOFAM_DB {
 process DOWNLOAD_EGGNOG_DB {
     storeDir "${params.db_dir}/eggnog"
     container 'nanozoo/eggnog-mapper:2.1.13--c16a7d2'
+    conda     'bioconda::eggnog-mapper'
 
     output:
     path 'eggnog_db', emit: db
@@ -108,6 +122,24 @@ process DOWNLOAD_EGGNOG_DB {
     """
     mkdir -p eggnog_db
     download_eggnog_data.py --data_dir eggnog_db -y
+    """
+}
+
+process DOWNLOAD_CARD_DB {
+    storeDir "${params.db_dir}/card"
+    container 'finlaymaguire/rgi:latest'
+    conda     'bioconda::rgi conda-forge::wget'
+
+    output:
+    path 'card_db', emit: db
+
+    script:
+    """
+    mkdir -p card_db
+    cd card_db
+    wget -q https://card.mcmaster.ca/latest/data -O card_data.tar.bz2
+    tar -xjf card_data.tar.bz2
+    rm card_data.tar.bz2
     """
 }
 
@@ -122,6 +154,7 @@ process TAXONOMY {
     label 'high_cpu'
     publishDir "${params.outdir}/taxonomy", mode: 'copy'
     container 'nanozoo/gtdbtk:2.4.0--02c00d5'
+    conda     'bioconda::gtdbtk'
     when: params.run_taxonomy
 
     input:
@@ -155,6 +188,7 @@ process BAKTA {
     label 'medium_cpu'
     publishDir "${params.outdir}/bakta", mode: 'copy'
     container 'oschwengers/bakta:latest'
+    conda     'bioconda::bakta'
     when: params.run_bakta
 
     input:
@@ -187,6 +221,7 @@ process EGGNOG {
     label 'medium_cpu'
     publishDir "${params.outdir}/eggnog", mode: 'copy'
     container 'nanozoo/eggnog-mapper:2.1.13--c16a7d2'
+    conda     'bioconda::eggnog-mapper'
     when: params.run_eggnog && params.run_bakta
 
     input:
@@ -217,6 +252,7 @@ process AMRFINDER {
     label 'medium_cpu'
     publishDir "${params.outdir}/amrfinder", mode: 'copy'
     container 'staphb/ncbi-amrfinderplus:latest'
+    conda     'bioconda::ncbi-amrfinderplus'
     when: params.run_amrfinder
 
     input:
@@ -235,30 +271,37 @@ process AMRFINDER {
 }
 
 // ============================================================
-// VFDB  (Step 5)
-// Virulence factor annotation via abricate against VFDB.
-// Container: staphb/abricate  https://hub.docker.com/r/staphb/abricate
+// CARD_RGI  (Step 5)
+// Comprehensive AMR annotation via CARD Resistance Gene Identifier.
+// Depends on Bakta .faa protein output.
+// Container: finlaymaguire/rgi  https://hub.docker.com/r/finlaymaguire/rgi
 // ============================================================
-process VFDB {
+process CARD_RGI {
     tag "$name"
-    publishDir "${params.outdir}/vfdb", mode: 'copy'
-    container 'staphb/abricate:latest'
-    when: params.run_vfdb
+    label 'medium_cpu'
+    publishDir "${params.outdir}/card_rgi", mode: 'copy'
+    container 'finlaymaguire/rgi:latest'
+    conda     'bioconda::rgi'
+    when: params.run_card_rgi && params.run_bakta
 
     input:
-    tuple val(name), path(fa_file)
+    tuple val(name), path(faa_file)
+    path card_db
 
     output:
-    tuple val(name), path("${name}_vfdb.tsv")
+    tuple val(name), path("${name}_rgi.tsv"), emit: tsv
 
     script:
     """
-    abricate \\
-        --db     vfdb \\
-        --minid  80   \\
-        --mincov 80   \\
-        ${fa_file}    \\
-        > ${name}_vfdb.tsv
+    rgi load --card_json ${card_db}/card.json --local
+    rgi main \\
+        --input_sequence ${faa_file} \\
+        --output_file    ${name}_rgi \\
+        --input_type     protein     \\
+        --alignment_tool DIAMOND     \\
+        --num_threads    ${task.cpus} \\
+        --clean
+    mv ${name}_rgi.txt ${name}_rgi.tsv
     """
 }
 
@@ -274,6 +317,7 @@ process KOFAM {
     label 'medium_cpu'
     publishDir "${params.outdir}/kofam_raw", mode: 'copy'
     container 'reubenduncan/kofam_scan:amd64'
+    conda     'bioconda::kofamscan'
     when: params.run_kofam && params.run_bakta
 
     input:
@@ -304,6 +348,7 @@ process KOFAM_REFORMAT {
     tag "$name"
     publishDir "${params.outdir}/kofam", mode: 'copy'
     container 'python:3.11-slim'
+    conda     'conda-forge::python=3.11'
     when: params.run_kofam
 
     input:
@@ -350,18 +395,107 @@ EOF
 }
 
 // ============================================================
-// MGE  (Step 7)
-// Mobile genetic element / plasmid detection via PlasmidFinder.
-// Outputs JSON results; MGE_TO_TSV will convert to TSV.
+// METABOLIC  (Step 7)
+// Metabolic and biogeochemical functional annotation.
+// Reconstructs metabolic pathways from genome nucleotide sequences.
+// Container: jolespin/metabolic  https://hub.docker.com/r/jolespin/metabolic
+// ============================================================
+process METABOLIC {
+    tag "$name"
+    label 'high_cpu'
+    publishDir "${params.outdir}/metabolic", mode: 'copy'
+    container 'jolespin/metabolic:v4.0'
+    conda     'bioconda::metabolic'
+    when: params.run_metabolic
+
+    input:
+    tuple val(name), path(fa_file)
+
+    output:
+    tuple val(name), path("${name}_metabolic/")
+
+    script:
+    """
+    mkdir -p input_genomes
+    cp ${fa_file} input_genomes/
+    METABOLIC-G.pl \\
+        -in-gn input_genomes \\
+        -o     ${name}_metabolic \\
+        -t     ${task.cpus}
+    """
+}
+
+// ============================================================
+// METABOLISMHMM  (Step 8)
+// HMM-based detection of metabolic pathway marker genes.
+// Depends on Bakta .faa protein output.
+// Container: elizabethmcd/metabolishmm  https://hub.docker.com/r/elizabethmcd/metabolishmm
+// ============================================================
+process METABOLISMHMM {
+    tag "$name"
+    label 'medium_cpu'
+    publishDir "${params.outdir}/metabolismhmm", mode: 'copy'
+    container 'elizabethmcd/metabolishmm:latest'
+    conda     'bioconda::metabolishmm'
+    when: params.run_metabolismhmm && params.run_bakta
+
+    input:
+    tuple val(name), path(faa_file)
+
+    output:
+    tuple val(name), path("${name}_metabolismhmm/")
+
+    script:
+    """
+    metabolishmm run-metabolic \\
+        --input   ${faa_file}           \\
+        --output  ${name}_metabolismhmm \\
+        --threads ${task.cpus}
+    """
+}
+
+// ============================================================
+// MICROTRAIT  (Step 9)
+// Microbial functional trait inference from genome sequences.
+// Container: ukaraoz/microtrait  https://hub.docker.com/r/ukaraoz/microtrait
+// ============================================================
+process MICROTRAIT {
+    tag "$name"
+    label 'medium_cpu'
+    publishDir "${params.outdir}/microtrait", mode: 'copy'
+    container 'ukaraoz/microtrait:latest'
+    conda     'bioconda::r-microtrait conda-forge::r-base=4'
+    when: params.run_microtrait
+
+    input:
+    tuple val(name), path(fa_file)
+
+    output:
+    tuple val(name), path("${name}_microtrait/")
+
+    script:
+    """
+    microtrait infer \\
+        --input  ${fa_file}          \\
+        --outdir ${name}_microtrait  \\
+        --nthreads ${task.cpus}
+    """
+}
+
+// ============================================================
+// PLASMIDFINDER  (Step 10a)
+// Plasmid replicon detection via PlasmidFinder.
+// Outputs JSON results; PLASMIDFINDER_TO_TSV will convert to TSV.
 // Container: staphb/plasmidfinder  https://hub.docker.com/r/staphb/plasmidfinder
 // Database bundled in container at /plasmidfinder_db by default;
 // override with --plasmidfinder_db to use an external copy.
 // ============================================================
-process MGE {
+process PLASMIDFINDER {
     tag "$name"
-    publishDir "${params.outdir}/mge_raw", mode: 'copy'
+    publishDir "${params.outdir}/plasmidfinder_raw", mode: 'copy'
     container 'staphb/plasmidfinder:latest'
-    when: params.run_mge
+    conda     'bioconda::plasmidfinder'
+    when: params.run_plasmidfinder
 
     input:
     tuple val(name), path(fa_file)
@@ -372,7 +506,7 @@ process MGE {
     script:
     """
     mkdir -p ${name}
-    plasmidfinder.py \\
+    python -m plasmidfinder \\
         -i ${fa_file}                      \\
         -o ${name}                         \\
         -p ${params.plasmidfinder_db}
@@ -380,21 +514,22 @@ process MGE {
 }
 
 // ============================================================
-// MGE_TO_TSV
+// PLASMIDFINDER_TO_TSV
 // Convert PlasmidFinder JSON output to TSV format.
 // Schema: genome, contig, match_id, match_name, coverage, identity, hit_length
 // ============================================================
-process MGE_TO_TSV {
+process PLASMIDFINDER_TO_TSV {
     tag "$name"
-    publishDir "${params.outdir}/mge", mode: 'copy'
+    publishDir "${params.outdir}/plasmidfinder", mode: 'copy'
     container 'python:3.11-slim'
-    when: params.run_mge
+    conda     'conda-forge::python=3.11'
+    when: params.run_plasmidfinder
 
     input:
     tuple val(name), path(results_json)
 
     output:
-    tuple val(name), path("${name}_mge.tsv")
+    tuple val(name), path("${name}_plasmidfinder.tsv")
 
     script:
     """
@@ -407,7 +542,7 @@ with open('${results_json}', 'r') as f:
     data = json.load(f)
 
 # Write TSV with consistent schema
-with open('${name}_mge.tsv', 'w') as out:
+with open('${name}_plasmidfinder.tsv', 'w') as out:
     out.write('genome\\tcontig\\tmatch_id\\tmatch_name\\tcoverage\\tidentity\\thit_length\\n')
 
     # PlasmidFinder JSON structure: "results" -> contig_name -> list of matches
@@ -429,15 +564,121 @@ EOF
 }
 
 // ============================================================
-// ANTISMASH  (Step 8)
+// INTEGRONFINDER  (Step 10b)
+// Detection of integrons and associated gene cassettes.
+// Container: gem-pasteur/integron_finder  https://hub.docker.com/r/gempasteur/integron_finder
+// ============================================================
+process INTEGRONFINDER {
+    tag "$name"
+    label 'medium_cpu'
+    publishDir "${params.outdir}/integronfinder", mode: 'copy'
+    container 'gempasteur/integron_finder:latest'
+    conda     'bioconda::integron_finder'
+    when: params.run_integronfinder
+
+    input:
+    tuple val(name), path(fa_file)
+
+    output:
+    tuple val(name), path("${name}_integrons/"), emit: dir
+    tuple val(name), path("${name}_integrons.tsv"), emit: tsv
+
+    script:
+    """
+    integron_finder \\
+        --outdir ${name}_integrons \\
+        --cpu    ${task.cpus}      \\
+        --local-max                \\
+        ${fa_file}
+    # Concatenate all .integrons tables into a single TSV (keep header from first file only)
+    header=true
+    for f in ${name}_integrons/Results_Integron_Finder_*/*.integrons; do
+        if [ -f "\$f" ]; then
+            if \$header; then
+                cat "\$f" > ${name}_integrons.tsv
+                header=false
+            else
+                grep -v '^#' "\$f" >> ${name}_integrons.tsv
+            fi
+        fi
+    done
+    touch ${name}_integrons.tsv
+    """
+}
+
+// ============================================================
+// MOB_SUITE  (Step 10c)
+// Plasmid reconstruction, classification, and MOB typing.
+// Container: kbessonov/mob_suite  https://hub.docker.com/r/kbessonov/mob_suite
+// ============================================================
+process MOB_SUITE {
+    tag "$name"
+    label 'medium_cpu'
+    publishDir "${params.outdir}/mob_suite", mode: 'copy'
+    container 'kbessonov/mob_suite:latest'
+    conda     'bioconda::mob_suite'
+    when: params.run_mob_suite
+
+    input:
+    tuple val(name), path(fa_file)
+
+    output:
+    tuple val(name), path("${name}_mob/"),   emit: dir
+    tuple val(name), path("${name}_mob.tsv"), emit: tsv
+
+    script:
+    """
+    mob_recon \\
+        --infile      ${fa_file}   \\
+        --outdir      ${name}_mob  \\
+        --num_threads ${task.cpus} \\
+        --run_typer
+    cp ${name}_mob/contig_report.txt ${name}_mob.tsv
+    """
+}
+
+// ============================================================
+// ISESCAN  (Step 10d)
+// Insertion sequence (IS) element detection and annotation.
+// Container: staphb/isescan  https://hub.docker.com/r/staphb/isescan
+// ============================================================
+process ISESCAN {
+    tag "$name"
+    label 'medium_cpu'
+    publishDir "${params.outdir}/isescan", mode: 'copy'
+    container 'staphb/isescan:latest'
+    conda     'bioconda::isescan'
+    when: params.run_isescan
+
+    input:
+    tuple val(name), path(fa_file)
+
+    output:
+    tuple val(name), path("${name}_isescan/"),   emit: dir
+    tuple val(name), path("${name}_isescan.tsv"), emit: tsv
+
+    script:
+    """
+    isescan.py \\
+        --seqfile ${fa_file}          \\
+        --output  ${name}_isescan     \\
+        --nthread ${task.cpus}
+    # Copy the main prediction table
+    cp ${name}_isescan/*.tsv ${name}_isescan.tsv 2>/dev/null || touch ${name}_isescan.tsv
+    """
+}
+
+// ============================================================
+// ANTISMASH  (Step 11)
 // Secondary metabolite biosynthetic gene cluster prediction.
-// Container: antismash/antismash  https://hub.docker.com/r/antismash/antismash
+// Container: antismash/standalone  https://hub.docker.com/r/antismash/standalone
 // ============================================================
 process ANTISMASH {
     tag "$name"
     label 'medium_cpu'
     publishDir "${params.outdir}/antismash", mode: 'copy'
-    container 'antismash/antismash:latest'
+    container 'antismash/standalone:latest'
+    conda     'bioconda::antismash'
     when: params.run_antismash
 
     input:
@@ -453,99 +694,6 @@ process ANTISMASH {
         --output-dir     ${name}       \\
         --genefinding-tool prodigal    \\
         --cpus           ${task.cpus}
-    """
-}
-
-// ============================================================
-// MERGE_RESULTS
-// Merge all TSV outputs into a single Parquet file.
-// Handles ## comment lines; adds source_tool column.
-// ============================================================
-process MERGE_RESULTS {
-    publishDir "${params.outdir}", mode: 'copy'
-    container 'python:3.11-slim'
-    when: params.run_merge
-
-    input:
-    path amrfinder_tsvs
-    path vfdb_tsvs
-    path kofam_tsvs
-    path mge_tsvs
-
-    output:
-    path 'combined_results.parquet'
-
-    script:
-    """
-    python3 << 'EOF'
-import pandas as pd
-import glob
-import os
-
-# Collect all TSVs with their source tool labels
-all_data = []
-
-# Helper to read TSVs safely (skip ## comment lines)
-def read_tsv_safe(file_path):
-    df = pd.read_csv(file_path, sep='\\t', comment='#', quotechar='"', quoting=1)
-    return df
-
-# Read AMRFinder results
-for f in glob.glob('${amrfinder_tsvs}'):
-    if f.endswith('.tsv'):
-        try:
-            df = read_tsv_safe(f)
-            df['source_tool'] = 'amrfinder'
-            all_data.append(df)
-        except Exception as e:
-            print(f"Warning: Could not read {f}: {e}", file=__import__('sys').stderr)
-
-# Read VFDB results
-for f in glob.glob('${vfdb_tsvs}'):
-    if f.endswith('.tsv'):
-        try:
-            df = read_tsv_safe(f)
-            df['source_tool'] = 'vfdb'
-            all_data.append(df)
-        except Exception as e:
-            print(f"Warning: Could not read {f}: {e}", file=__import__('sys').stderr)
-
-# Read KOFAM results
-for f in glob.glob('${kofam_tsvs}'):
-    if f.endswith('.tsv'):
-        try:
-            df = read_tsv_safe(f)
-            df['source_tool'] = 'kofam'
-            all_data.append(df)
-        except Exception as e:
-            print(f"Warning: Could not read {f}: {e}", file=__import__('sys').stderr)
-
-# Read MGE (PlasmidFinder) results
-for f in glob.glob('${mge_tsvs}'):
-    if f.endswith('.tsv'):
-        try:
-            df = read_tsv_safe(f)
-            df['source_tool'] = 'mge_plasmidfinder'
-            all_data.append(df)
-        except Exception as e:
-            print(f"Warning: Could not read {f}: {e}", file=__import__('sys').stderr)
-
-if all_data:
-    # Concatenate with alignment='minimal' (aligns columns by name only)
-    combined = pd.concat(all_data, axis=0, ignore_index=True, sort=True)
-    # Move source_tool to the front
-    cols = combined.columns.tolist()
-    cols.remove('source_tool')
-    combined = combined[['source_tool'] + cols]
-
-    # Export to Parquet
-    combined.to_parquet('combined_results.parquet', index=False)
-    print(f"Merged {len(all_data)} TSV files into combined_results.parquet ({len(combined)} rows)")
-else:
-    print("Warning: No TSV files found to merge")
-    # Create empty parquet
-    pd.DataFrame({'source_tool': []}).to_parquet('combined_results.parquet', index=False)
-EOF
     """
 }
 
@@ -576,38 +724,55 @@ workflow {
         fa_ch = COLLECT_INPUTS.out.samples
     }
 
-    // --- Database channels ---
-    // Use user-supplied paths when provided, otherwise auto-download.
-    def bakta_db_ch
-    if (params.bakta_db) {
-        bakta_db_ch = Channel.value(file(params.bakta_db))
-    } else {
-        DOWNLOAD_BAKTA_DB()
-        bakta_db_ch = DOWNLOAD_BAKTA_DB.out.db.first()
+    def gtdbtk_db_ch
+    if (params.run_taxonomy) {
+        if (params.gtdbtk_db) {
+            gtdbtk_db_ch = Channel.value(file(params.gtdbtk_db))
+        } else {
+            DOWNLOAD_GTDBTK_DB()
+            gtdbtk_db_ch = DOWNLOAD_GTDBTK_DB.out.db.first()
+        }
     }
 
-    def gtdbtk_db_ch
-    if (params.gtdbtk_db) {
-        gtdbtk_db_ch = Channel.value(file(params.gtdbtk_db))
-    } else {
-        DOWNLOAD_GTDBTK_DB()
-        gtdbtk_db_ch = DOWNLOAD_GTDBTK_DB.out.db.first()
+    def bakta_db_ch
+    if (params.run_bakta) {
+        if (params.bakta_db) {
+            bakta_db_ch = Channel.value(file(params.bakta_db))
+        }
+        else {
+            DOWNLOAD_BAKTA_DB()
+            bakta_db_ch = DOWNLOAD_BAKTA_DB.out.db.first()
+        }
     }
 
     def kofam_db_ch
-    if (params.kofam_db) {
-        kofam_db_ch = Channel.value(file(params.kofam_db))
-    } else {
-        DOWNLOAD_KOFAM_DB()
-        kofam_db_ch = DOWNLOAD_KOFAM_DB.out.db.first()
+    if (params.run_kofam) {
+        if (params.kofam_db) {
+            kofam_db_ch = Channel.value(file(params.kofam_db))
+        } else {
+            DOWNLOAD_KOFAM_DB()
+            kofam_db_ch = DOWNLOAD_KOFAM_DB.out.db.first()
+        }
     }
 
     def eggnog_db_ch
-    if (params.eggnog_db) {
-        eggnog_db_ch = Channel.value(file(params.eggnog_db))
-    } else {
-        DOWNLOAD_EGGNOG_DB()
-        eggnog_db_ch = DOWNLOAD_EGGNOG_DB.out.db.first()
+    if (params.run_eggnog) {
+        if (params.eggnog_db) {
+            eggnog_db_ch = Channel.value(file(params.eggnog_db))
+        } else {
+            DOWNLOAD_EGGNOG_DB()
+            eggnog_db_ch = DOWNLOAD_EGGNOG_DB.out.db.first()
+        }
+    }
+
+    def card_db_ch
+    if (params.run_card_rgi) {
+        if (params.card_db) {
+            card_db_ch = Channel.value(file(params.card_db))
+        } else {
+            DOWNLOAD_CARD_DB()
+            card_db_ch = DOWNLOAD_CARD_DB.out.db.first()
+        }
     }
 
     // Step 1 — Taxonomy: collect all FAs into one GTDB-Tk classify_wf run
@@ -619,30 +784,48 @@ workflow {
     // Step 2 — Bakta: per-genome structural + functional annotation
     BAKTA(fa_ch, bakta_db_ch)
 
-    // Steps 3 & 6 — depend on Bakta protein sequences
+    // Steps 3, 5, 6, 8 — depend on Bakta protein sequences
     EGGNOG(BAKTA.out.faa, eggnog_db_ch)
-    KOFAM(BAKTA.out.faa,  kofam_db_ch)
+    CARD_RGI(BAKTA.out.faa, card_db_ch)
+    KOFAM(BAKTA.out.faa, kofam_db_ch)
+    METABOLISMHMM(BAKTA.out.faa)
 
     // Step 6b — Reformat KOFAM output from space-separated to proper TSV
     KOFAM_REFORMAT(KOFAM.out.raw)
 
-    // Steps 4, 5, 7, 8 — independent per-genome, run in parallel
+    // Steps 4, 7, 9, 10a-d, 11 — independent per-genome, run in parallel
     AMRFINDER(fa_ch)
-    VFDB(fa_ch)
-    MGE(fa_ch)
+    METABOLIC(fa_ch)
+    MICROTRAIT(fa_ch)
+    PLASMIDFINDER(fa_ch)
+    INTEGRONFINDER(fa_ch)
+    MOB_SUITE(fa_ch)
+    ISESCAN(fa_ch)
     ANTISMASH(fa_ch)
 
-    // Step 7b — Convert MGE JSON to TSV
-    MGE_TO_TSV(MGE.out.json)
+    // Step 10a-b — Convert PlasmidFinder JSON to TSV
+    PLASMIDFINDER_TO_TSV(PLASMIDFINDER.out.json)
 
-    // Final step — merge all TSVs into a Parquet file
+    // Merge all TSVs into a Parquet file, then generate HTML report
     if (params.run_merge) {
-        // Collect all TSVs for merging
-        amrfinder_tsvs = AMRFINDER.out.map { name, tsv -> tsv }.collect()
-        vfdb_tsvs = VFDB.out.map { name, tsv -> tsv }.collect()
-        kofam_tsvs = KOFAM_REFORMAT.out.map { name, tsv -> tsv }.collect()
-        mge_tsvs = MGE_TO_TSV.out.map { name, tsv -> tsv }.collect()
+        amrfinder_tsvs      = AMRFINDER.out.map            { name, tsv -> tsv }.collect()
+        kofam_tsvs          = KOFAM_REFORMAT.out.map       { name, tsv -> tsv }.collect()
+        card_rgi_tsvs       = CARD_RGI.out.tsv.map         { name, tsv -> tsv }.collect()
+        plasmidfinder_tsvs  = PLASMIDFINDER_TO_TSV.out.map { name, tsv -> tsv }.collect()
+        integronfinder_tsvs = INTEGRONFINDER.out.tsv.map   { name, tsv -> tsv }.collect()
+        mob_suite_tsvs      = MOB_SUITE.out.tsv.map        { name, tsv -> tsv }.collect()
+        isescan_tsvs        = ISESCAN.out.tsv.map          { name, tsv -> tsv }.collect()
 
-        MERGE_RESULTS(amrfinder_tsvs, vfdb_tsvs, kofam_tsvs, mge_tsvs)
+        MERGE(
+            amrfinder_tsvs,
+            kofam_tsvs,
+            card_rgi_tsvs,
+            plasmidfinder_tsvs,
+            integronfinder_tsvs,
+            mob_suite_tsvs,
+            isescan_tsvs
+        )
+
+        REPORT(MERGE.out.parquet)
     }
 }
