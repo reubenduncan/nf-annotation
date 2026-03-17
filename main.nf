@@ -29,7 +29,7 @@ params.run_amrfinder      = true
 params.run_card_rgi       = true   // AMR via CARD RGI (replaces abricate/VFDB)
 params.run_kofam          = true
 params.run_metabolic      = true   // Metabolic pathway reconstruction (METABOLIC)
-params.run_metabolismhmm  = true   // HMM-based metabolic marker detection (metabolisHMM)
+params.run_metabolishmm  = true   // HMM-based metabolic marker detection (metabolisHMM)
 params.run_microtrait     = true   // Microbial functional trait inference (microTrait)
 params.run_plasmidfinder  = true   // Plasmid detection (PlasmidFinder)
 params.run_integronfinder = true   // Integron detection (IntegronFinder)
@@ -426,30 +426,30 @@ process METABOLIC {
 }
 
 // ============================================================
-// METABOLISMHMM  (Step 8)
+// METABOLISHMM  (Step 8)
 // HMM-based detection of metabolic pathway marker genes.
 // Depends on Bakta .faa protein output.
 // Container: elizabethmcd/metabolishmm  https://hub.docker.com/r/elizabethmcd/metabolishmm
 // ============================================================
-process METABOLISMHMM {
+process METABOLISHMM {
     tag "$name"
     label 'medium_cpu'
-    publishDir "${params.outdir}/metabolismhmm", mode: 'copy'
+    publishDir "${params.outdir}/metabolishmm", mode: 'copy'
     container 'elizabethmcd/metabolishmm:latest'
     conda     'bioconda::metabolishmm'
-    when: params.run_metabolismhmm && params.run_bakta
+    when: params.run_metabolishmm && params.run_bakta
 
     input:
     tuple val(name), path(faa_file)
 
     output:
-    tuple val(name), path("${name}_metabolismhmm/")
+    tuple val(name), path("${name}_metabolishmm/")
 
     script:
     """
     metabolishmm run-metabolic \\
         --input   ${faa_file}           \\
-        --output  ${name}_metabolismhmm \\
+        --output  ${name}_metabolishmm \\
         --threads ${task.cpus}
     """
 }

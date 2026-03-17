@@ -1,132 +1,190 @@
-# Gene Assembly Annotation Pipeline (Nextflow)
+# nf-annotation
 
-8-step metagenome-assembled genome (MAG) annotation pipeline, with optional reformatting and merging of all results into a single Parquet file.
+Nextflow pipeline for comprehensive annotation of metagenome-assembled genomes (MAGs). Accepts FASTA, FASTQ, or BAM inputs and runs up to 14 annotation tools in parallel, merging results into a single Parquet file and an HTML report.
 
 ## Pipeline overview
 
 ```
-bins/*.fa.gz
+params.input/
     │
-    ├─[quality filter]──► TAXONOMY    (GTDB-Tk)          → results/taxonomy/
-    │
-    └─[all bins]
+    ├─ FASTA (.fa/.fasta/.fna, plain or .gz)  → NORMALIZE_FASTA
+    ├─ FASTQ (.fastq/.fq, plain or .gz)       → CONCAT_READS
+    └─ BAM (.bam)                             → BAM_TO_FASTQ → CONCAT_READS
          │
-         ├──► BAKTA        (structural annotation)       → results/bakta/
-         │       ├──► EGGNOG   (orthology/function)      → results/eggnog/
-         │       └──► KOFAM    (KEGG orthology)
-         │            └──► KOFAM_REFORMAT (space→TSV)   → results/kofam/
+         ├─[quality filter, optional]
          │
-         ├──► AMRFINDER    (AMR genes)                   → results/amrfinder/
-         ├──► VFDB         (virulence factors)           → results/vfdb/
-         ├──► MGE          (plasmids/mobile elements)
-         │     └──► MGE_TO_TSV (JSON→TSV)               → results/mge/
-         ├──► ANTISMASH    (biosynthetic gene clusters)  → results/antismash/
+         ├──► TAXONOMY          (GTDB-Tk classify_wf)         → results/taxonomy/
          │
-         └──► MERGE_RESULTS (all TSVs→Parquet)          → results/combined_results.parquet
+         ├──► BAKTA             (structural annotation)        → results/bakta/
+         │       ├──► EGGNOG   (orthology/function)           → results/eggnog/
+         │       ├──► CARD_RGI (AMR via CARD RGI)             → results/card_rgi/
+         │       ├──► KOFAM    (KEGG orthology)
+         │       │     └──► KOFAM_REFORMAT (space→TSV)        → results/kofam/
+         │       └──► METABOLISHMM (HMM metabolic markers)    → results/metabolishmm/
+         │
+         ├──► AMRFINDER         (NCBI AMRFinderPlus)          → results/amrfinder/
+         ├──► METABOLIC         (pathway reconstruction)       → results/metabolic/
+         ├──► MICROTRAIT        (functional trait inference)   → results/microtrait/
+         ├──► PLASMIDFINDER     (plasmid replicons)
+         │     └──► PLASMIDFINDER_TO_TSV (JSON→TSV)           → results/plasmidfinder/
+         ├──► INTEGRONFINDER    (integrons)                    → results/integronfinder/
+         ├──► MOB_SUITE         (plasmid reconstruction/MOB)  → results/mob_suite/
+         ├──► ISESCAN           (insertion sequences)         → results/isescan/
+         └──► ANTISMASH         (biosynthetic gene clusters)  → results/antismash/
+              │
+              └──► MERGE        (all TSVs → Parquet)          → results/combined_results.parquet
+                    └──► REPORT (HTML annotation report)      → results/annotation_report.html
 ```
 
-Steps 4–8 run in parallel. Steps 3 and 6 start as soon as each genome's Bakta job finishes. Reformatting steps (KOFAM_REFORMAT, MGE_TO_TSV) and final merge can be enabled/disabled independently.
+BAKTA-dependent steps start as soon as each genome's Bakta job completes. All other per-genome steps run in parallel from the start.
 
 ## Requirements
 
 - [Nextflow](https://www.nextflow.io/) >= 23.04
-- Docker (or Singularity — see profiles below)
-- Python with pandas library (for merge step, automatically pulled in `python:3.11-slim` container)
+- Conda or Mamba (default runtime), **or** Docker / Singularity
 
-## Databases
+## Runtime
 
-Download these separately and provide their paths at runtime:
+The pipeline defaults to **conda** (mamba is used automatically when available). Override with a profile flag:
 
-| Parameter | Database |
-|-----------|----------|
-| `--gtdbtk_db` | [GTDB-Tk reference data](https://ecogenomics.github.io/GTDBTk/installing/index.html) |
-| `--bakta_db` | [Bakta database](https://github.com/oschwengers/bakta#database) |
-| `--eggnog_db` | [EggNOG-mapper data](https://github.com/eggnogdb/eggnog-mapper/wiki/eggNOG-mapper-v2) (`download_eggnog_data.py`) |
-| `--kofam_db` | [KofamScan profiles + ko_list](https://www.genome.jp/tools/kofamkoala/) |
-| `--plasmidfinder_db` | Optional — defaults to the database bundled in the `staphb/plasmidfinder` container |
+| Profile | Runtime |
+|---------|---------|
+| *(none)* | Conda / Mamba (default) |
+| `-profile conda` | Conda / Mamba (explicit) |
+| `-profile docker` | Docker |
+| `-profile singularity` | Singularity |
+| `-profile slurm,docker` | SLURM + Docker |
+| `-profile slurm,singularity` | SLURM + Singularity |
 
-## Containers used
+## Input modes
 
-| Step | Tool | Container |
-|------|------|-----------|
-| 1 | GTDB-Tk | `ecogenomics/gtdbtk:2.4.0` |
-| 2 | Bakta | `oschwengers/bakta:latest` |
-| 3 | EggNOG-mapper | `nanozoo/eggnog-mapper:2.1.12--0` |
-| 4 | AMRFinderPlus | `staphb/ncbi-amrfinderplus:latest` |
-| 5 | abricate (VFDB) | `staphb/abricate:latest` |
-| 6 | KofamScan | `reubenduncan/kofam_scan:amd64` |
-| 6b | KOFAM_REFORMAT | `python:3.11-slim` |
-| 7 | PlasmidFinder | `staphb/plasmidfinder:latest` |
-| 7b | MGE_TO_TSV | `python:3.11-slim` |
-| 8 | antiSMASH | `antismash/antismash:latest` |
-| Merge | MERGE_RESULTS | `python:3.11-slim` |
+The pipeline auto-detects the layout of `--input`:
+
+| Layout | Behaviour |
+|--------|-----------|
+| **Flat** — files directly in `--input` | Each file (or R1/R2 pair) becomes one sample |
+| **Subfolder** — immediate subdirectories in `--input` | All files in a subdir are merged into one sample |
+
+Supported file types: `.fa`, `.fasta`, `.fna` (plain or `.gz`), `.fastq`, `.fq` (plain or `.gz`), `.bam`.
+
+FASTQ and BAM inputs are converted to FASTA (reads treated as contigs — suitable for basecaller consensus reads). For short-read assemblies, assemble before running this pipeline.
+
+## Parameters
+
+### Required
+
+| Parameter | Description |
+|-----------|-------------|
+| `--input` | Path to input directory (FASTA / FASTQ / BAM files) |
+
+### Databases
+
+All database parameters are optional — if omitted the pipeline will auto-download the database to `--db_dir` (default: `databases/`) and cache it with `storeDir`.
+
+| Parameter | Database | Notes |
+|-----------|----------|-------|
+| `--bakta_db` | [Bakta database](https://github.com/oschwengers/bakta#database) | ~30 GB |
+| `--gtdbtk_db` | [GTDB-Tk reference data](https://ecogenomics.github.io/GTDBTk/) | ~66 GB |
+| `--kofam_db` | [KofamScan profiles + ko_list](https://www.genome.jp/tools/kofamkoala/) | |
+| `--eggnog_db` | [EggNOG-mapper data](https://github.com/eggnogdb/eggnog-mapper/wiki/eggNOG-mapper-v2) | |
+| `--card_db` | [CARD database](https://card.mcmaster.ca/) | |
+| `--plasmidfinder_db` | PlasmidFinder database | Defaults to `/plasmidfinder_db` bundled in container |
+
+### Optional parameters
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `--quality_report` | `null` | TSV with columns: name, completeness, contamination. If provided, filters genomes before annotation |
+| `--min_completeness` | `80` | Minimum completeness (%) to pass quality filter |
+| `--max_contamination` | `5` | Maximum contamination (%) to pass quality filter |
+| `--db_dir` | `databases` | Directory for auto-downloaded databases |
+| `--outdir` | `results` | Output directory |
+
+### Pipeline stages
+
+All stages are enabled by default. Set any to `false` to skip:
+
+| Parameter | Default | Tool |
+|-----------|---------|------|
+| `--run_taxonomy` | `true` | GTDB-Tk taxonomic classification |
+| `--run_bakta` | `true` | Bakta structural annotation |
+| `--run_eggnog` | `true` | EggNOG-mapper (requires `--run_bakta`) |
+| `--run_amrfinder` | `true` | NCBI AMRFinderPlus |
+| `--run_card_rgi` | `true` | CARD RGI AMR annotation (requires `--run_bakta`) |
+| `--run_kofam` | `true` | KofamScan KEGG orthology (requires `--run_bakta`) |
+| `--run_metabolic` | `true` | METABOLIC pathway reconstruction |
+| `--run_metabolishmm` | `true` | metabolisHMM marker detection (requires `--run_bakta`) |
+| `--run_microtrait` | `true` | microTrait functional trait inference |
+| `--run_plasmidfinder` | `true` | PlasmidFinder plasmid detection |
+| `--run_integronfinder` | `true` | IntegronFinder integron detection |
+| `--run_mob_suite` | `true` | mob_suite plasmid reconstruction/MOB typing |
+| `--run_isescan` | `true` | ISEScan insertion sequence detection |
+| `--run_antismash` | `true` | antiSMASH biosynthetic gene cluster prediction |
+| `--run_merge` | `true` | Merge all TSVs into Parquet |
+| `--run_report` | `true` | Generate HTML annotation report |
 
 ## Usage
 
-### Minimal example
+### Minimal example (pre-built databases)
 
 ```bash
 nextflow run main.nf \
-    --bins_dir       /path/to/final_bins \
-    --quality_report /path/to/quality_report.tsv \
+    --input          /path/to/genomes \
     --bakta_db       /path/to/bakta/db \
     --gtdbtk_db      /path/to/gtdbtk_data \
     --kofam_db       /path/to/kofam \
     --eggnog_db      /path/to/eggnog_data \
-    --run_bakta \
-    --run_amrfinder \
+    --card_db        /path/to/card \
     --outdir         results
 ```
 
-### Enable all stages including merge
+### Auto-download all databases
 
 ```bash
 nextflow run main.nf \
-    --bins_dir       /path/to/final_bins \
-    --quality_report /path/to/quality_report.tsv \
-    --bakta_db       /path/to/bakta/db \
-    --gtdbtk_db      /path/to/gtdbtk_data \
-    --kofam_db       /path/to/kofam \
-    --eggnog_db      /path/to/eggnog_data \
-    --run_taxonomy \
-    --run_bakta \
-    --run_eggnog \
-    --run_amrfinder \
-    --run_vfdb \
-    --run_kofam \
-    --run_mge \
-    --run_antismash \
-    --run_merge \
-    --outdir         results
+    --input   /path/to/genomes \
+    --db_dir  /path/to/databases \
+    --outdir  results
 ```
 
-### Skippable stages
-
-Each annotation stage is disabled by default and can be enabled with `--run_<stage>`:
-
-- `--run_taxonomy` → runs GTDB-Tk taxonomic classification
-- `--run_bakta` → runs Bakta structural annotation
-- `--run_eggnog` → runs EggNOG-mapper (requires `--run_bakta`)
-- `--run_amrfinder` → runs AMRFinderPlus
-- `--run_vfdb` → runs abricate with VFDB
-- `--run_kofam` → runs KofamScan + KOFAM_REFORMAT (requires `--run_bakta`)
-- `--run_mge` → runs PlasmidFinder + MGE_TO_TSV
-- `--run_antismash` → runs antiSMASH
-- `--run_merge` → merges all TSVs into a single Parquet file
-
-### Quality filtering thresholds (optional)
-
-Defaults match the original scripts (≥80% completeness, ≤5% contamination):
+### With quality filtering
 
 ```bash
-    --min_completeness 80 \
-    --max_contamination 5
+nextflow run main.nf \
+    --input              /path/to/genomes \
+    --quality_report     /path/to/checkm_report.tsv \
+    --min_completeness   80 \
+    --max_contamination  5 \
+    --outdir             results
+```
+
+### Skip specific stages
+
+```bash
+nextflow run main.nf \
+    --input            /path/to/genomes \
+    --run_metabolic    false \
+    --run_metabolishmm false \
+    --run_microtrait   false \
+    --outdir           results
+```
+
+### Docker
+
+```bash
+nextflow run main.nf -profile docker [...]
 ```
 
 ### HPC / Singularity
 
 ```bash
 nextflow run main.nf -profile slurm,singularity [...]
+```
+
+### HPC / conda
+
+```bash
+nextflow run main.nf -profile slurm [...]
 ```
 
 ### Resume a failed run
@@ -139,33 +197,70 @@ nextflow run main.nf -resume [...]
 
 ```
 results/
-├── taxonomy/              # GTDB-Tk outputs (if --run_taxonomy)
-├── bakta/                 # Bakta per-genome outputs (if --run_bakta)
-├── eggnog/                # EggNOG-mapper TSVs (if --run_eggnog)
-├── amrfinder/             # AMRFinderPlus TSVs (if --run_amrfinder)
-├── vfdb/                  # VFDB TSVs (if --run_vfdb)
-├── kofam_raw/             # Raw space-separated KOFAM output
-├── kofam/                 # Reformatted KOFAM TSVs (if --run_kofam)
-├── mge_raw/               # Raw PlasmidFinder JSON
-├── mge/                   # Reformatted MGE TSVs (if --run_mge)
-├── antismash/             # antiSMASH per-genome outputs (if --run_antismash)
-├── combined_results.parquet   # Merged results (if --run_merge)
-├── pipeline_trace.txt     # Execution trace
-└── pipeline_report.html   # HTML execution report
+├── taxonomy/              # GTDB-Tk classify_wf outputs
+├── bakta/                 # Bakta per-genome outputs
+├── eggnog/                # EggNOG-mapper TSVs
+├── amrfinder/             # AMRFinderPlus TSVs
+├── card_rgi/              # CARD RGI TSVs
+├── kofam_raw/             # Raw KofamScan output (space-separated)
+├── kofam/                 # Reformatted KofamScan TSVs
+├── metabolic/             # METABOLIC per-genome outputs
+├── metabolishmm/          # metabolisHMM per-genome outputs
+├── microtrait/            # microTrait per-genome outputs
+├── plasmidfinder_raw/     # Raw PlasmidFinder JSON
+├── plasmidfinder/         # PlasmidFinder TSVs
+├── integronfinder/        # IntegronFinder outputs + TSVs
+├── mob_suite/             # mob_suite outputs + TSVs
+├── isescan/               # ISEScan outputs + TSVs
+├── antismash/             # antiSMASH per-genome outputs
+├── combined_results.parquet   # Merged annotation results
+└── annotation_report.html     # Self-contained HTML report
 ```
+
+## Containers
+
+| Step | Tool | Container |
+|------|------|-----------|
+| Input | NORMALIZE_FASTA | `ubuntu:24.04` |
+| Input | BAM_TO_FASTQ | `staphb/samtools:latest` |
+| Input | CONCAT_READS | `ubuntu:24.04` |
+| 1 | GTDB-Tk | `nanozoo/gtdbtk:2.4.0--02c00d5` |
+| 2 | Bakta | `oschwengers/bakta:latest` |
+| 3 | EggNOG-mapper | `nanozoo/eggnog-mapper:2.1.13--c16a7d2` |
+| 4 | AMRFinderPlus | `staphb/ncbi-amrfinderplus:latest` |
+| 5 | CARD RGI | `finlaymaguire/rgi:latest` |
+| 6 | KofamScan | `reubenduncan/kofam_scan:amd64` |
+| 6b | KOFAM_REFORMAT | `python:3.11-slim` |
+| 7 | METABOLIC | `jolespin/metabolic:v4.0` |
+| 8 | metabolisHMM | `elizabethmcd/metabolishmm:latest` |
+| 9 | microTrait | `ukaraoz/microtrait:latest` |
+| 10a | PlasmidFinder | `staphb/plasmidfinder:latest` |
+| 10a-b | PLASMIDFINDER_TO_TSV | `python:3.11-slim` |
+| 10b | IntegronFinder | `gempasteur/integron_finder:latest` |
+| 10c | mob_suite | `kbessonov/mob_suite:latest` |
+| 10d | ISEScan | `staphb/isescan:latest` |
+| 11 | antiSMASH | `antismash/standalone:latest` |
+| Merge | MERGE | `python:3.11-slim` |
+| Report | GENERATE_REPORT | `quay.io/biocontainers/pandas:1.5.2` |
 
 ## Data processing details
 
+### Quality filtering
+
+If `--quality_report` is provided, the pipeline reads the TSV (col1 = genome name, col2 = completeness, col3 = contamination), skipping one header row. Only genomes meeting `--min_completeness` and `--max_contamination` thresholds are passed to annotation tools.
+
 ### KOFAM reformatting
-KofamScan outputs space-separated files (not true TSV). KOFAM_REFORMAT reads the raw output, skips comment lines, and writes proper tab-separated output with a header:
+
+KofamScan outputs space-separated files (not true TSV). `KOFAM_REFORMAT` skips comment lines and writes proper tab-separated output:
 
 ```
 gene_name    KO       threshold  score   E_value  KO_definition
 APMBCM_00001 K21874   325.13     18.0    0.00031  SUN domain-containing protein 3
 ```
 
-### MGE JSON to TSV
-PlasmidFinder outputs JSON. MGE_TO_TSV parses the results and writes a TSV with consistent schema:
+### PlasmidFinder JSON to TSV
+
+`PLASMIDFINDER_TO_TSV` parses PlasmidFinder JSON and writes a TSV with consistent schema:
 
 ```
 genome    contig       match_id   match_name         coverage  identity  hit_length
@@ -173,20 +268,5 @@ bin_001   contig_123   pDNA_001   plasmid_marker_A   95.2      98.5      1524
 ```
 
 ### Parquet merge
-MERGE_RESULTS reads all tool-specific TSVs, adds a `source_tool` column (one of: `amrfinder`, `vfdb`, `kofam`, `mge_plasmidfinder`), and concatenates them into a single Parquet file. It:
-- Skips comment lines (lines starting with `#`)
-- Handles `##` comment blocks gracefully
-- Aligns columns by name, so different tools' outputs are preserved as-is with tool annotation
-- Outputs to `results/combined_results.parquet`
 
-## Quality report format
-
-The TSV must have genome name in column 1, completeness in column 2, contamination in column 3 (no header, or with one header row — the pipeline skips row 1 automatically):
-
-```
-genome_name    completeness    contamination
-bin_001        95.3            1.2
-bin_002        72.1            8.4
-```
-
-
+`MERGE` reads all tool-specific TSVs, adds a `source_tool` column, and concatenates them into a single Parquet file covering: `amrfinder`, `kofam`, `card_rgi`, `plasmidfinder`, `integronfinder`, `mob_suite`, `isescan`.
