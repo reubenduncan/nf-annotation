@@ -784,11 +784,15 @@ workflow {
     // Step 2 — Bakta: per-genome structural + functional annotation
     BAKTA(fa_ch, bakta_db_ch)
 
+    // Filter out assemblies where Bakta found no ORFs (empty .faa) to avoid
+    // crashing downstream protein-based tools.
+    def faa_ch = BAKTA.out.faa.filter { name, faa -> faa.size() > 0 }
+
     // Steps 3, 5, 6, 8 — depend on Bakta protein sequences
-    EGGNOG(BAKTA.out.faa, eggnog_db_ch)
-    CARD_RGI(BAKTA.out.faa, card_db_ch)
-    KOFAM(BAKTA.out.faa, kofam_db_ch)
-    METABOLISMHMM(BAKTA.out.faa)
+    EGGNOG(faa_ch, eggnog_db_ch)
+    CARD_RGI(faa_ch, card_db_ch)
+    KOFAM(faa_ch, kofam_db_ch)
+    METABOLISMHMM(faa_ch)
 
     // Step 6b — Reformat KOFAM output from space-separated to proper TSV
     KOFAM_REFORMAT(KOFAM.out.raw)
